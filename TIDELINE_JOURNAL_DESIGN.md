@@ -110,3 +110,34 @@ Make Insights a full screen with the side menu still visible (Insights highlight
    - **Gridlines and axis:** faint vertical gridlines (#2C333C) at 1, 2, 3, 4, and a small 1–5 axis under each card.
    - **Hover:** a row gets a #22282F background and a tooltip, e.g. "Thu: average 3.0 (Okay) from 2 entries".
 5. **Footer:** a legend explaining solid vs faded bars, plus a "View as table" link that shows the same numbers as a plain table.
+
+## Pinned screen
+
+Make Pinned a full screen with the side menu still visible, not a pop-up.
+
+**Side menu bug:** only the current screen should be highlighted. In the current build, Timeline and Pinned are both highlighted at once.
+
+1. **Header:**
+   - Serif "Pinned" (34 px), with the subtitle "N entries you've starred to keep close."
+   - On the right, a "Sort by" dropdown: Newest entry first / Oldest entry first / Recently pinned.
+2. **Category filter row:**
+   - Pill buttons (34 px tall): "All" first, then one per category that has pinned entries. Each shows the colour dot, the name and a count.
+   - The selected pill gets an accent border and a #2B323C background.
+   - Hide categories with no pinned entries.
+3. **Card grid:** cards about 340 px wide, as many columns as fit (radius 14, colour surface). Each card has:
+   - **Date block** (52×56, #232A33, radius 10) on the left: "OCT" in small caps over a serif day number.
+   - **Beside it:** "Monday 12 October · 13:59" in text_2. Below that, the tinted category label and the mood face icon with its word (e.g. "Low").
+   - **A filled amber star** at top right. Clicking it unpins the entry, with an undo message for 5 seconds.
+   - **Serif title** (20 px). Entries without a title use the first line of the text, cut at about 60 characters.
+   - **Body preview:** serif 15 px, 4 lines max.
+   - **Footer:** a top border line, the word count, and an "Open day ›" button that jumps to the calendar on that day.
+4. **Dates:** never show ISO dates like 2026-10-12 to the user. Use "Monday 12 October" for this year and add the year for older entries.
+5. **How-to card:** always the last tile in the grid, with a dashed border. It reads "Keep the ones that matter close." plus how to pin: click the star, or press Ctrl+D while writing.
+6. **Empty state:** if nothing is pinned, show only the how-to card, centred, with the subtitle "Nothing pinned yet."
+
+## Search panel (also seen in the current build)
+
+1. **Dates and stars:** results use the same friendly date format and a filled star for pinned entries.
+2. **Filter controls:**
+   - Put the filter dropdowns (category, mood) on one row that wraps.
+   - Replace the "Starred only" and "Has attachment" radio buttons with toggle pills, since they can each be on or off.

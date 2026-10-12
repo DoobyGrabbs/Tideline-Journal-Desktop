@@ -61,6 +61,10 @@ pub(crate) fn data() -> Data {
 }
 
 /// `TIDELINE_DEMO=editor` opens the writing view with some text in it.
+pub(crate) fn wants(mode: &str) -> bool {
+    std::env::var("TIDELINE_DEMO").is_ok_and(|v| v == mode)
+}
+
 pub(crate) fn wants_editor() -> bool {
     std::env::var("TIDELINE_DEMO").is_ok_and(|v| v == "editor")
 }

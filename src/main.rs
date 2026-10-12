@@ -409,6 +409,7 @@ impl DiaryApp {
             app.recovery_hint_dismissed = true;
             app.selected = NaiveDate::from_ymd_opt(2026, 10, 8).unwrap();
             app.month = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+            app.insights.open = demo::wants("insights");
             if demo::wants_editor() {
                 demo::fill_editor(&mut app);
             }
@@ -1470,11 +1471,13 @@ clear_open_files(); // leftovers from opening attachments last time
         ui.add_space(14.0);
         ui.spacing_mut().item_spacing.y = 6.0;
 
-        let calendar_on = self.view != CalView::Photos && !self.search_state.showing(&self.search);
+        let calendar_on = self.view != CalView::Photos && !self.search_state.showing(&self.search) && !self.insights.open;
         if kit::nav_item(ui, Some(kit::Icon::Sun), None, "Today", None, false).on_hover_text("Jump to today (Ctrl+T)").clicked() {
             self.go_today();
+            self.insights.open = false;
         }
         if kit::nav_item(ui, Some(kit::Icon::Calendar), None, "Calendar", None, calendar_on).clicked() {
+            self.insights.open = false;
             if self.view == CalView::Photos {
                 self.view = CalView::Month;
             }
@@ -1486,13 +1489,15 @@ clear_open_files(); // leftovers from opening attachments last time
             self.search.clear();
             self.search_state.reset();
             self.search_state.open = true;
+            self.insights.open = false;
         }
         let pinned = self.data.entries.iter().filter(|e| e.pinned).count();
         if kit::nav_item(ui, Some(kit::Icon::Star), None, "Pinned", (pinned > 0).then(|| pinned.to_string()), self.show_pinned).clicked() {
             self.show_pinned = !self.show_pinned;
         }
-        if kit::nav_item(ui, Some(kit::Icon::Image), None, "Photos", None, self.view == CalView::Photos).clicked() {
+        if kit::nav_item(ui, Some(kit::Icon::Image), None, "Photos", None, self.view == CalView::Photos && !self.insights.open).clicked() {
             self.view = CalView::Photos;
+            self.insights.open = false;
             self.search.clear();
             self.search_state.reset();
         }
@@ -1530,6 +1535,7 @@ clear_open_files(); // leftovers from opening attachments last time
                     self.search.clear();
                     self.search_state.reset();
                     self.search_state.filters.category = name;
+                    self.insights.open = false;
                 }
             }
         });
@@ -2624,14 +2630,21 @@ impl eframe::App for DiaryApp {
                 .exact_size(236.0)
                 .frame(egui::Frame::new().fill(p.panel_bg).stroke(Stroke::new(1.0, p.border_soft)).inner_margin(egui::Margin::symmetric(16, 16)))
                 .show(ui, |ui| self.side_menu(ui));
-            egui::Panel::right("day")
-                .default_size(340.0)
-                .size_range(300.0..=460.0)
-                .frame(egui::Frame::new().fill(p.panel_bg).stroke(Stroke::new(1.0, p.border_soft)).inner_margin(egui::Margin::symmetric(24, 22)))
-                .show(ui, |ui| self.day_panel(ui));
-            egui::CentralPanel::default()
-                .frame(egui::Frame::new().fill(p.page_bg).inner_margin(egui::Margin::symmetric(28, 24)))
-                .show(ui, |ui| self.calendar(ui));
+            if self.insights.open && !self.search_state.showing(&self.search) {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(p.page_bg).inner_margin(egui::Margin::symmetric(32, 26)))
+                    .show(ui, |ui| self.insights_page(ui));
+            } else {
+                self.insights.open = false;
+                egui::Panel::right("day")
+                    .default_size(340.0)
+                    .size_range(300.0..=460.0)
+                    .frame(egui::Frame::new().fill(p.panel_bg).stroke(Stroke::new(1.0, p.border_soft)).inner_margin(egui::Margin::symmetric(24, 22)))
+                    .show(ui, |ui| self.day_panel(ui));
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(p.page_bg).inner_margin(egui::Margin::symmetric(28, 24)))
+                    .show(ui, |ui| self.calendar(ui));
+            }
         }
 
         self.categories_window(&ctx);
@@ -2644,7 +2657,6 @@ impl eframe::App for DiaryApp {
         self.recovery_window(&ctx);
         self.trash_window(&ctx);
         self.backups_window(&ctx);
-        self.insights_window(&ctx);
         self.lightbox_window(&ctx);
         self.pinned_window(&ctx);
         self.export_window(&ctx);
@@ -3236,7 +3248,7 @@ mod tests {
     }
 
     #[test]
-    fn insights_window_renders_every_tab_range_and_period() {
+    fn insights_page_renders_every_tab_range_and_period() {
         let ctx = egui::Context::default();
         setup_style(&ctx);
         let mut app = app_with_entries();
@@ -3250,7 +3262,9 @@ mod tests {
                     app.insights.tab = tab;
                     app.insights.range = range;
                     app.insights.period = period;
-                    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.insights_window(ui.ctx()));
+                    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                        egui::CentralPanel::default().show(ui, |ui| app.insights_page(ui));
+                    });
                     out.textures_delta.clear();
                 }
             }
