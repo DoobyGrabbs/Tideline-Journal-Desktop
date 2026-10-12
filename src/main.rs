@@ -1207,43 +1207,70 @@ clear_open_files(); // leftovers from opening attachments last time
                 paint_cog(ui.painter(), rect.center(), 11.0, Color32::WHITE, if cog.hovered() { BLUE_HOVER } else { BLUE });
                 let mut settings_changed = false;
                 egui::Popup::menu(&cog).show(|ui| {
+                    ui.set_min_width(300.0);
+                    let muted = palette(ui.ctx()).muted;
+                    // A small heading above each group of settings.
+                    let heading = |ui: &mut egui::Ui, title: &str| {
+                        ui.add_space(2.0);
+                        ui.label(RichText::new(title).small().strong().color(muted));
+                    };
+
+                    heading(ui, "SECURITY");
                     if ui.button("Change password…").clicked() {
                         self.show_password = true;
-                        ui.close();
-                    }
-                    if ui.button("Keyboard shortcuts…").clicked() {
-                        self.show_shortcuts = true;
-                        ui.close();
-                    }
-                    if ui.button("Export to PDF…").clicked() {
-                        self.show_export = true;
                         ui.close();
                     }
                     if ui.button("Recovery key…").on_hover_text("A code that can open the diary if you forget your password").clicked() {
                         self.show_recovery = true;
                         ui.close();
                     }
-                    if ui.button(format!("Recently deleted ({})…", self.data.trash.len())).clicked() {
-                        self.show_trash = true;
-                        ui.close();
-                    }
-                    if ui.button("AI helpers…").on_hover_text("Draft from notes, summarise a day, reflection questions (run on this PC with Ollama)").clicked() {
-                        self.ai.setup_open = true;
-                        ui.close();
-                    }
+                    ui.menu_button("Auto-lock", |ui| {
+                        for (label, mins) in [("Off", 0), ("After 1 minute", 1), ("After 5 minutes", 5), ("After 10 minutes", 10), ("After 30 minutes", 30)] {
+                            settings_changed |= ui.radio_value(&mut self.data.settings.auto_lock_minutes, mins, label).changed();
+                        }
+                    });
+                    settings_changed |= ui
+                        .checkbox(&mut self.data.settings.privacy_screen, "Hide the diary when the window is in the background")
+                        .changed();
+
+                    ui.separator();
+                    heading(ui, "WRITING");
                     if ui.button("Templates…").on_hover_text("Ready-made starting points for an entry").clicked() {
                         self.templates.open = true;
                         ui.close();
                     }
                     settings_changed |= ui.checkbox(&mut self.data.settings.show_prompts, "Show writing prompts").changed();
-                    if ui.button("Data location…").clicked() {
-                        self.show_location = true;
+                    ui.menu_button("Daily word goal", |ui| {
+                        for (label, words) in [("Off", 0), ("100 words", 100), ("250 words", 250), ("500 words", 500), ("750 words", 750), ("1,000 words", 1000)] {
+                            settings_changed |= ui.radio_value(&mut self.data.settings.daily_word_goal, words, label).changed();
+                        }
+                    });
+                    if ui.button("AI helpers…").on_hover_text("Draft from notes, summarise a day, reflection questions (run on this PC with Ollama)").clicked() {
+                        self.ai.setup_open = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+                    heading(ui, "YOUR DATA");
+                    if ui.button("Export to PDF…").clicked() {
+                        self.show_export = true;
                         ui.close();
                     }
                     if ui.button("Back up encrypted copy…").clicked() {
                         self.backup();
                         ui.close();
                     }
+                    if ui.button("Data location…").clicked() {
+                        self.show_location = true;
+                        ui.close();
+                    }
+                    if ui.button(format!("Recently deleted ({})…", self.data.trash.len())).clicked() {
+                        self.show_trash = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+                    heading(ui, "DISPLAY");
                     ui.menu_button("Window on startup", |ui| {
                         for (mode, label) in [
                             (location::StartMode::Normal, "Normal window"),
@@ -1273,19 +1300,13 @@ clear_open_files(); // leftovers from opening attachments last time
                             }
                         }
                     });
-                    settings_changed |= ui
-                        .checkbox(&mut self.data.settings.privacy_screen, "Hide the diary when the window is in the background")
-                        .changed();
-                    ui.menu_button("Daily word goal", |ui| {
-                        for (label, words) in [("Off", 0), ("100 words", 100), ("250 words", 250), ("500 words", 500), ("750 words", 750), ("1,000 words", 1000)] {
-                            settings_changed |= ui.radio_value(&mut self.data.settings.daily_word_goal, words, label).changed();
-                        }
-                    });
-                    ui.menu_button("Auto-lock", |ui| {
-                        for (label, mins) in [("Off", 0), ("After 1 minute", 1), ("After 5 minutes", 5), ("After 10 minutes", 10), ("After 30 minutes", 30)] {
-                            settings_changed |= ui.radio_value(&mut self.data.settings.auto_lock_minutes, mins, label).changed();
-                        }
-                    });
+
+                    ui.separator();
+                    heading(ui, "HELP");
+                    if ui.button("Keyboard shortcuts…").clicked() {
+                        self.show_shortcuts = true;
+                        ui.close();
+                    }
                 });
                 if settings_changed {
                     self.persist();
