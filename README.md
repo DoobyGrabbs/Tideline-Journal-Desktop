@@ -21,7 +21,9 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 - **WYSIWYG rich text editor** (Markdown underneath): type in a single page where bold looks bold, headings are large and the Markdown marks disappear. The marks show on the line your cursor is on, or everywhere with "Show formatting marks". A toolbar offers bold, italic, strikethrough, code, three heading sizes, bulleted and numbered lists and quotes.
 - **Pictures** appear in the page where you put them. Add them with the **Image** button or by dropping a file onto the editor, and remove them with the button under each one. Large images are shrunk (longest side 1600 px) and stored inside the encrypted diary.
 - **Mood**: rate each entry with five emoji-style faces, from really sad (red, crying) to really happy (green, grinning). Click a face again to clear it. The scale is stored as 1 to 5.
-- **Focus mode**: the Focus button (or `F11`) turns the editor into a distraction-free full-window page with larger text. `Esc` leaves it.
+- **Templates** (**Template** menu in the editor, or **Settings → Templates**): eight ready-made starting points (Gratitude, Daily review, Evening wind-down, Weekly reflection, Mood check-in, Goals check-in, Dream log, Travel log) plus your own. Use `{date}`, `{weekday}` and `{time}` in your own and they are filled in automatically. You can pick one to open with every new entry.
+- **Writing prompts**: above an empty entry a short question appears ("What made you smile today?"). **Use it** starts the entry with it, **Another** shows the next one, and **Hide prompts** turns them off (back on under **Settings**).
+- **AI helpers** (optional, off until you set them up; see below): draft an entry from your rough notes, summarise a day, or suggest a question to reflect on.
 - **Attachments**: attach any file (up to 25 MB each) with **Attach file…** or by dropping it on the editor. Files are stored inside the encrypted diary; use **Save as…** or **Open** on the entry's card to get them out. (**Open** writes a temporary, unencrypted copy that is deleted when the diary locks or the app next starts.)
 - **Private entries**: tick **Private** and the entry stays hidden (its text, mood, pictures and search matches) until you click it open. It is hidden again when the diary locks or the window loses focus.
 - **Word count and daily goal**: the editor shows a live word count. Pick a daily goal under **Settings → Daily word goal** and a progress bar tracks the day's total in the editor and the day panel.
@@ -54,7 +56,6 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 | Add a picture | **Image…** in the editor, or drop an image file onto the editor |
 | Switch view | **Day / Week / Month / Year / Photos** buttons above the calendar, or `Ctrl+1` … `Ctrl+5` |
 | Look back | **Random** or `Ctrl+R` |
-| Focus mode | **Focus** in the editor, or `F11` (`Esc` leaves it) |
 | Move around | **◀** / **▶** or the left/right arrow keys step a day, week, month or year; **Today** (`Ctrl+T`) jumps back |
 | Move an entry | Drag its pill onto another day (or, in the Day view, another hour) |
 | Search | `Ctrl+F`, then type; clear the box to go back to the day view |
@@ -64,6 +65,24 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 Other editor shortcuts: `Ctrl+B` bold, `Ctrl+I` italic.
 
 Deleting a category does not delete its entries; they are shown in grey.
+
+## AI helpers (optional)
+
+Three helpers use [Ollama](https://ollama.com), a free program that runs AI models **on your own PC**:
+
+- **AI draft**: in the editor, jot rough notes, then **AI draft** turns them into a diary entry in your voice. You choose whether to add it below your notes or replace them.
+- **Summarise this day**: on a day's panel, writes a short summary of that day's entries and can save it as an entry in an "AI" category.
+- **AI question**: suggests a thoughtful question based on your recent entries; **Use as a heading** starts your entry with it.
+
+They are off until you set them up under **Settings → AI helpers**, which walks through three steps: **1.** Ollama (the app can install it for you with Windows' own package manager, winget, after you tick a confirmation; or open the download page; or start it if it is installed but not running), **2.** a model (pick one that is installed, or download one such as Llama 3.2, Qwen 2.5, Gemma 2 or Phi-3 mini, with a progress bar), **3.** turn the helpers on. The AI buttons only appear while Ollama is running with a model chosen.
+
+How your privacy is protected:
+
+- The app only ever talks to Ollama on this PC (`127.0.0.1`); nothing is sent over the internet.
+- **Private entries are never sent**, and neither are summaries the AI wrote earlier.
+- The helpers are told to use only what you wrote and not to invent anything. Each result window has **Show exactly what was sent to Ollama**.
+- Nothing is saved until you choose to: you can edit the AI's text first. Entries that include AI text are marked **AI-assisted**; day summaries are marked **AI summary**, and they don't count towards your word counts, streaks or statistics.
+- The first answer can take a minute while the model loads into memory. Small models write modestly; bigger ones are better but slower and need more RAM.
 
 ## Running it
 
@@ -137,6 +156,7 @@ Once decrypted, the data looks like this:
 - `src/gallery.rs` is the Photos view and picture viewer; `src/pinned.rs` is the Pinned list; `src/faces.rs` draws the mood faces.
 - `src/export.rs` builds the PDF.
 - `src/location.rs` decides where the diary file lives and moves it.
+- `src/templates.rs` holds the templates and writing prompts and their window. `src/ollama.rs` is the small client for a local Ollama server, and `src/ai.rs` the AI helpers (requests, background tasks, the setup window and result window).
 - `src/vault.rs` contains the encryption: the password, the recovery key and the wrapped data key. `src/recovery.rs` is the Recovery key window; `src/trash.rs` is Recently deleted.
 - `src/icon.rs` draws the app icon; `build.rs` turns it into the `.exe` icon.
-- `Cargo.toml` lists the dependencies: `eframe`/`egui_extras` (UI), `chrono`/`jiff` (dates), `serde`/`serde_json`, `pulldown-cmark` (Markdown), `image` (pictures), `rfd` (file dialogs), `argon2`/`chacha20poly1305`/`base64`/`getrandom` (encryption), `genpdf`/`lopdf` (PDF), and `winresource` (build only).
+- `Cargo.toml` lists the dependencies: `eframe`/`egui_extras` (UI), `chrono`/`jiff` (dates), `serde`/`serde_json`, `pulldown-cmark` (Markdown), `image` (pictures), `rfd` (file dialogs), `argon2`/`chacha20poly1305`/`base64`/`getrandom` (encryption), `genpdf`/`lopdf` (PDF), `ureq` (talking to Ollama on this PC), and `winresource` (build only).

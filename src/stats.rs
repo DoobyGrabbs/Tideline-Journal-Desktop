@@ -30,6 +30,9 @@ impl DayStat {
 pub fn per_day(entries: &[Entry]) -> BTreeMap<NaiveDate, DayStat> {
     let mut days: BTreeMap<NaiveDate, DayStat> = BTreeMap::new();
     for e in entries {
+        if e.generated {
+            continue; // written by the AI, not by you
+        }
         let Some(d) = parse(&e.date) else { continue };
         let s = days.entry(d).or_default();
         s.entries += 1;
@@ -114,7 +117,7 @@ pub fn summarise(
 ) -> Summary {
     let in_range: Vec<Entry> = entries
         .iter()
-        .filter(|e| parse(&e.date).is_some_and(|d| d >= from && d <= to))
+        .filter(|e| !e.generated && parse(&e.date).is_some_and(|d| d >= from && d <= to))
         .cloned()
         .collect();
     let days: BTreeMap<NaiveDate, &DayStat> = per_day.range(from..=to).map(|(d, s)| (*d, s)).collect();

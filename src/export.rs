@@ -396,6 +396,11 @@ pub fn build_pdf(report: &Report, cats: &[Category], images: &BTreeMap<String, S
             if let Some(m) = e.mood.filter(|m| (1..=5).contains(m)) {
                 head.push_str(&format!("   mood: {}", crate::MOOD_LABELS[usize::from(m) - 1]));
             }
+            if e.generated {
+                head.push_str("   (AI summary)");
+            } else if e.ai {
+                head.push_str("   (AI-assisted)");
+            }
             doc.push(Paragraph::new(StyledString::new(head, Style::new().bold().with_font_size(10).with_color(tint))));
             doc.push(Break::new(0.3));
             doc.push(blocks(&parse(&e.text.replace('\n', "  \n")), &ctx));

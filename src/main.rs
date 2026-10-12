@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use location::data_path;
 
 mod icon;
+mod ai;
 mod export;
 mod faces;
 mod gallery;
@@ -14,10 +15,12 @@ mod live;
 mod insights;
 mod location;
 mod markdown;
+mod ollama;
 mod pinned;
 mod recovery;
 mod reports;
 mod stats;
+mod templates;
 mod trash;
 mod vault;
 
@@ -113,6 +116,12 @@ struct Entry {
     /// Files attached to the entry (the data is in `Data::files`).
     #[serde(default)]
     attachments: Vec<Attachment>,
+    /// Some of the text was drafted with the AI helpers (and then edited by you).
+    #[serde(default)]
+    ai: bool,
+    /// Written entirely by the AI (a day summary): left out of word counts and statistics.
+    #[serde(default)]
+    generated: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -128,6 +137,9 @@ struct Data {
     /// Deleted entries, kept for 30 days.
     #[serde(default)]
     trash: Vec<trash::Trashed>,
+    /// Templates you wrote (the built-in ones are in the app).
+    #[serde(default)]
+    templates: Vec<templates::Template>,
     #[serde(default)]
     settings: Settings,
 }
@@ -143,11 +155,19 @@ struct Settings {
     ui_scale: f32,
     /// Hide the diary while its window is not the active one.
     privacy_screen: bool,
+    /// Name of the template used for every new entry; empty for none.
+    default_template: String,
+    /// Show a writing prompt above an empty entry.
+    show_prompts: bool,
+    /// The AI helpers are switched on (they also need Ollama and a model).
+    ai_enabled: bool,
+    /// The Ollama model the AI helpers use.
+    ai_model: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true }
+        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true, default_template: String::new(), show_prompts: true, ai_enabled: false, ai_model: String::new() }
     }
 }
 
@@ -166,7 +186,7 @@ fn default_categories() -> Vec<Category> {
 
 
 fn fresh_data() -> Data {
-    Data { categories: default_categories(), entries: Vec::new(), images: BTreeMap::new(), files: BTreeMap::new(), trash: Vec::new(), settings: Settings::default() }
+    Data { categories: default_categories(), entries: Vec::new(), images: BTreeMap::new(), files: BTreeMap::new(), trash: Vec::new(), templates: Vec::new(), settings: Settings::default() }
 }
 
 /// What is currently on disk.
@@ -259,8 +279,11 @@ struct EditState {
     pinned: bool,
     sensitive: bool,
     attachments: Vec<Attachment>,
+    ai: bool,
     /// Index of the text block that last had the cursor (target of toolbar actions).
     focus: usize,
+    /// Steps through the writing prompts ("Another").
+    prompt_offset: usize,
     /// Move the cursor here next frame: (text block index, char position); `usize::MAX` = last / end.
     want_focus: Option<(usize, usize)>,
 }
@@ -340,6 +363,8 @@ struct DiaryApp {
     status: String,
     media: markdown::Media,
     show_marks: bool,
+    ai: ai::AiState,
+    templates: templates::TemplateState,
     show_recovery: bool,
     /// The recovery key just made; shown once, then forgotten.
     recovery_shown: Option<String>,
@@ -356,8 +381,6 @@ struct DiaryApp {
     photos_cache: Option<(u64, Vec<gallery::Photo>)>,
     thumb_size: f32,
     lightbox: Option<usize>,
-    /// Distraction-free writing: the editor fills the window.
-    focus_mode: bool,
     /// Private entries the user has clicked open (forgotten on lock).
     revealed: std::collections::HashSet<u64>,
     show_pinned: bool,
@@ -410,6 +433,8 @@ clear_open_files(); // leftovers from opening attachments last time
             status: String::new(),
             media: markdown::Media::default(),
             show_marks: false,
+            ai: ai::AiState::default(),
+            templates: templates::TemplateState::default(),
             show_recovery: false,
             recovery_shown: None,
             recovery_confirmed: false,
@@ -423,7 +448,6 @@ clear_open_files(); // leftovers from opening attachments last time
             photos_cache: None,
             thumb_size: 150.0,
             lightbox: None,
-            focus_mode: false,
             revealed: std::collections::HashSet::new(),
             show_pinned: false,
             view: CalView::Month,
@@ -533,6 +557,7 @@ clear_open_files(); // leftovers from opening attachments last time
         self.revealed.clear();
         clear_open_files();
         self.stats_cache = None;
+        self.ai.reset();
         self.photos_cache = None;
         self.lightbox = None;
         self.insights.clear();
@@ -546,7 +571,6 @@ clear_open_files(); // leftovers from opening attachments last time
         self.recovery_shown = None;
         self.show_trash = false;
         self.last_trashed = None;
-        self.focus_mode = false;
         self.show_shortcuts = false;
         self.lock = Some(Lock::new(mode));
     }
@@ -838,10 +862,17 @@ clear_open_files(); // leftovers from opening attachments last time
             pinned: false,
             sensitive: false,
             attachments: Vec::new(),
+            ai: false,
             focus: 0,
+            prompt_offset: 0,
             want_focus: Some((usize::MAX, usize::MAX)),
         });
         self.editor_msg.clear();
+        // A template chosen for every new entry (Settings → Templates) is filled in right away.
+        let default = self.data.settings.default_template.clone();
+        if !default.is_empty() {
+            self.apply_template(&default);
+        }
     }
 
     /// Step the calendar one month / week / day / year.
@@ -919,13 +950,6 @@ clear_open_files(); // leftovers from opening attachments last time
             return;
         }
         if editing {
-            // F11 toggles focus mode; Esc leaves it.
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F11)) {
-                self.focus_mode = !self.focus_mode;
-            }
-            if self.focus_mode && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
-                self.focus_mode = false;
-            }
             // Ctrl+S saves the entry being written.
             if cmd(Key::S) || cmd(Key::Enter) {
                 self.save_requested = true;
@@ -1105,7 +1129,7 @@ clear_open_files(); // leftovers from opening attachments last time
             .show(ctx, |ui| {
                 close |= popup_header(ui, &p, "Keyboard shortcuts");
                 egui::Frame::new().inner_margin(14).show(ui, |ui| {
-                    let rows: [(&str, &str); 17] = [
+                    let rows: [(&str, &str); 16] = [
                         ("Ctrl+N", "New entry on the selected day"),
                         ("Ctrl+F", "Search entries"),
                         ("Ctrl+T", "Jump to today"),
@@ -1113,7 +1137,6 @@ clear_open_files(); // leftovers from opening attachments last time
                         ("Ctrl+E", "Export entries to PDF"),
                         ("Ctrl+R", "Jump to a random entry"),
                         ("Ctrl + / Ctrl -", "Bigger / smaller text (Ctrl+0 resets)"),
-                        ("F11", "Focus mode while writing (Esc leaves it)"),
                         ("← / →", "Previous / next month, week, day or year"),
                         ("Ctrl+1 … 5", "Day, Week, Month, Year, Photos view"),
                         ("Double-click", "A day: new entry. An entry: edit it"),
@@ -1180,6 +1203,15 @@ clear_open_files(); // leftovers from opening attachments last time
                         self.show_trash = true;
                         ui.close();
                     }
+                    if ui.button("AI helpers…").on_hover_text("Draft from notes, summarise a day, reflection questions (run on this PC with Ollama)").clicked() {
+                        self.ai.setup_open = true;
+                        ui.close();
+                    }
+                    if ui.button("Templates…").on_hover_text("Ready-made starting points for an entry").clicked() {
+                        self.templates.open = true;
+                        ui.close();
+                    }
+                    settings_changed |= ui.checkbox(&mut self.data.settings.show_prompts, "Show writing prompts").changed();
                     if ui.button("Data location…").clicked() {
                         self.show_location = true;
                         ui.close();
@@ -1706,7 +1738,9 @@ clear_open_files(); // leftovers from opening attachments last time
             pinned: e.pinned,
             sensitive: e.sensitive,
             attachments: e.attachments.clone(),
+            ai: e.ai,
             focus: 0,
+            prompt_offset: 0,
             want_focus: Some((usize::MAX, usize::MAX)),
         });
         self.editor_msg.clear();
@@ -1725,7 +1759,7 @@ clear_open_files(); // leftovers from opening attachments last time
         }
         let entries: Vec<Entry> = self.day_entries(self.selected).into_iter().cloned().collect();
         let memories: Vec<Entry> = stats::on_this_day(&self.data.entries, self.selected).into_iter().cloned().collect();
-        let words: usize = entries.iter().map(|e| markdown::word_count(&e.text)).sum();
+        let words: usize = entries.iter().filter(|e| !e.generated).map(|e| markdown::word_count(&e.text)).sum();
         let goal = self.data.settings.daily_word_goal as usize;
 
         ui.label(RichText::new(self.selected.format("%A").to_string()).size(14.0).color(p.muted));
@@ -1733,6 +1767,13 @@ clear_open_files(); // leftovers from opening attachments last time
         ui.add_space(6.0);
         if ui.button("➕ Add entry for this day").on_hover_text("New entry (Ctrl+N)").clicked() {
             self.new_entry(self.selected);
+        }
+        let mut ask_summary = false;
+        if self.ai_ready() && self.day_has_summarisable(self.selected) {
+            ui.add_space(4.0);
+            if ui.button("Summarise this day (AI)").on_hover_text("An AI model on this PC writes a short summary of the day's entries (private entries are never used)").clicked() {
+                ask_summary = true;
+            }
         }
         if goal > 0 {
             ui.add_space(6.0);
@@ -1799,6 +1840,11 @@ clear_open_files(); // leftovers from opening attachments last time
                             }
                             if e.sensitive {
                                 ui.label(RichText::new("Private").small().italics().color(fg));
+                            }
+                            if e.generated {
+                                ui.label(RichText::new("AI summary").small().italics().color(fg));
+                            } else if e.ai {
+                                ui.label(RichText::new("AI-assisted").small().italics().color(fg));
                             }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 // Star: pin or unpin this entry.
@@ -1902,6 +1948,9 @@ clear_open_files(); // leftovers from opening attachments last time
             self.selected = d;
             self.month = d.with_day(1).unwrap();
             self.day_scroll_pending = true;
+        }
+        if ask_summary {
+            self.ai_summarise_day(self.selected);
         }
         if let Some(id) = undo {
             self.restore_trashed(id);
@@ -2014,8 +2063,11 @@ clear_open_files(); // leftovers from opening attachments last time
         }
         let p = palette(ctx);
         let dark = ctx.theme() == egui::Theme::Dark;
-        let DiaryApp { editor, data, media, show_marks, editor_msg, save_requested, focus_mode: focus_flag, .. } = self;
-        let focus_mode = *focus_flag;
+        let template_names = self.template_names();
+        let ai_ready = self.ai_ready();
+        let (mut ask_draft, mut ask_question) = (false, false);
+        let (mut chosen_template, mut open_templates, mut persist_settings) = (None::<String>, false, false);
+        let DiaryApp { editor, data, media, show_marks, editor_msg, save_requested, .. } = self;
         let ed = editor.as_mut().unwrap();
         let mut save_it = false;
         let mut cancel = false;
@@ -2046,25 +2098,19 @@ clear_open_files(); // leftovers from opening attachments last time
             }
         }
 
-        let mut window = egui::Window::new(if ed.id.is_some() { "Edit entry" } else { "New entry" })
+        egui::Window::new(if ed.id.is_some() { "Edit entry" } else { "New entry" })
             .title_bar(false)
             .frame(popup_frame(&p, dark))
             .resizable(true)
             .default_size([940.0, 620.0])
             .min_size([560.0, 380.0])
             .pivot(Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center());
-        if focus_mode {
-            // Fill the whole window for distraction-free writing.
-            let r = ctx.content_rect();
-            window = window.fixed_pos(r.min).fixed_size(r.size()).pivot(Align2::LEFT_TOP).resizable(false);
-        }
-        window.show(ctx, |ui| {
+            .default_pos(ctx.content_rect().center())
+            .show(ctx, |ui| {
                 if popup_header(ui, &p, if ed.id.is_some() { "Edit entry" } else { "New entry" }) {
                     cancel = true;
                 }
                 egui::Frame::new().inner_margin(14).show(ui, |ui| {
-                    if !focus_mode {
                     // Day, time and category.
                     ui.horizontal_wrapped(|ui| {
                         ui.label("Date:");
@@ -2116,6 +2162,26 @@ clear_open_files(); // leftovers from opening attachments last time
                     });
                     ui.add_space(6.0);
 
+                    if data.settings.show_prompts && ed.text.trim().is_empty() {
+                        // A gentle nudge for a blank page; it disappears as soon as you start writing.
+                        let prompt = templates::prompt_for(ed.date, ed.prompt_offset);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("Prompt:").color(p.muted));
+                            ui.label(RichText::new(prompt).italics().color(p.ink));
+                            if ui.small_button("Use it").on_hover_text("Start the entry with this question").clicked() {
+                                ed.text = format!("## {prompt}\n\n");
+                                ed.want_focus = Some((usize::MAX, usize::MAX));
+                            }
+                            if ui.small_button("Another").clicked() {
+                                ed.prompt_offset += 1;
+                            }
+                            if ui.small_button("Hide prompts").on_hover_text("You can turn them back on under Settings").clicked() {
+                                data.settings.show_prompts = false;
+                                persist_settings = true;
+                            }
+                        });
+                        ui.add_space(4.0);
+                    }
                     // Formatting toolbar.
                     ui.horizontal_wrapped(|ui| {
                         use markdown::Format::*;
@@ -2134,6 +2200,29 @@ clear_open_files(); // leftovers from opening attachments last time
                         for (label, tip, format) in buttons {
                             if ui.button(label).on_hover_text(tip).clicked() {
                                 apply_format(ctx, ed, format);
+                            }
+                        }
+                        ui.menu_button("Template", |ui| {
+                            for name in &template_names {
+                                if ui.button(name).clicked() {
+                                    chosen_template = Some(name.clone());
+                                    ui.close();
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Manage templates…").clicked() {
+                                open_templates = true;
+                                ui.close();
+                            }
+                        });
+                        if ai_ready {
+                            // Only shown once the AI helpers are switched on and Ollama is running.
+                            let can_draft = !ed.text.trim().is_empty();
+                            if ui.add_enabled(can_draft, egui::Button::new("AI draft")).on_hover_text("Turn your rough notes into a diary entry. It runs on this PC, and anything it writes is marked as AI-assisted.").clicked() {
+                                ask_draft = true;
+                            }
+                            if ui.button("AI question").on_hover_text("Suggest a question to reflect on, based on your recent entries").clicked() {
+                                ask_question = true;
                             }
                         }
                         ui.add_space(8.0);
@@ -2164,9 +2253,6 @@ clear_open_files(); // leftovers from opening attachments last time
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.checkbox(show_marks, "Show formatting marks");
-                            if ui.button("Focus").on_hover_text("Distraction-free writing (F11)").clicked() {
-                                *focus_flag = true;
-                            }
                         });
                     });
                     if !editor_msg.is_empty() {
@@ -2192,22 +2278,11 @@ clear_open_files(); // leftovers from opening attachments last time
                         }
                     }
                     ui.add_space(6.0);
-                    } else {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!("Focus mode  ·  {}", ed.date.format("%A %e %B %Y"))).color(p.muted));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Leave focus mode").on_hover_text("Esc or F11").clicked() {
-                                    *focus_flag = false;
-                                }
-                            });
-                        });
-                        ui.add_space(6.0);
-                    }
 
                     // The page: styled text blocks, with pictures shown in between.
                     let mut page = |ui: &mut egui::Ui| {
-                    let height = (ui.available_height() - if focus_mode { 0.0 } else { 52.0 }).max(120.0);
-                    let body = ui.style().text_styles[&egui::TextStyle::Body].size * if focus_mode { 1.2 } else { 1.0 };
+                    let height = (ui.available_height() - 52.0).max(120.0);
+                    let body = ui.style().text_styles[&egui::TextStyle::Body].size;
                     let st = live::LiveStyle { ink: p.ink, muted: p.muted, accent: p.accent, size: body };
                     let marks = *show_marks;
                     egui::Frame::new().fill(p.cell).stroke(Stroke::new(1.0, p.cell_border)).inner_margin(10).show(ui, |ui| {
@@ -2302,22 +2377,7 @@ clear_open_files(); // leftovers from opening attachments last time
                         });
                     });
                     };
-                    if focus_mode {
-                        let area = vec2(ui.available_width(), (ui.available_height() - 52.0).max(160.0));
-                        ui.allocate_ui(area, |ui| {
-                            egui_extras::StripBuilder::new(ui)
-                                .size(egui_extras::Size::remainder())
-                                .size(egui_extras::Size::exact(860.0))
-                                .size(egui_extras::Size::remainder())
-                                .horizontal(|mut strip| {
-                                    strip.empty();
-                                    strip.cell(|ui| page(ui));
-                                    strip.empty();
-                                });
-                        });
-                    } else {
-                        page(ui);
-                    }
+                    page(ui);
 
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -2337,7 +2397,7 @@ clear_open_files(); // leftovers from opening attachments last time
                             let others: usize = data
                                 .entries
                                 .iter()
-                                .filter(|e| e.date == day && Some(e.id) != ed.id)
+                                .filter(|e| e.date == day && Some(e.id) != ed.id && !e.generated)
                                 .map(|e| markdown::word_count(&e.text))
                                 .sum();
                             let total = others + draft;
@@ -2353,9 +2413,23 @@ clear_open_files(); // leftovers from opening attachments last time
                 });
             });
 
+        if ask_draft {
+            self.ai_draft();
+        }
+        if ask_question {
+            self.ai_reflection(None);
+        }
+        if let Some(name) = chosen_template {
+            self.apply_template(&name);
+        }
+        if open_templates {
+            self.templates.open = true;
+        }
+        if persist_settings {
+            self.persist();
+        }
         if save_it {
             let ed = self.editor.take().unwrap();
-            self.focus_mode = false;
             let text = ed.text.trim().to_string();
             let added_at = format!("{} {:02}:{:02}:{:02}", key(ed.date), ed.hour, ed.minute, ed.second);
             match ed.id {
@@ -2369,11 +2443,12 @@ clear_open_files(); // leftovers from opening attachments last time
                         e.pinned = ed.pinned;
                         e.sensitive = ed.sensitive;
                         e.attachments = ed.attachments;
+                        e.ai = ed.ai;
                     }
                 }
                 None => {
                     let id = self.data.entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-                    self.data.entries.push(Entry { id, date: key(ed.date), added_at, category: ed.category, text, mood: ed.mood, pinned: ed.pinned, sensitive: ed.sensitive, attachments: ed.attachments, ..Default::default() });
+                    self.data.entries.push(Entry { id, date: key(ed.date), added_at, category: ed.category, text, mood: ed.mood, pinned: ed.pinned, sensitive: ed.sensitive, attachments: ed.attachments, ai: ed.ai, ..Default::default() });
                 }
             }
             self.selected = ed.date;
@@ -2382,7 +2457,6 @@ clear_open_files(); // leftovers from opening attachments last time
             self.persist();
         } else if cancel {
             self.editor = None;
-            self.focus_mode = false;
             self.editor_msg.clear();
 
         }
@@ -2619,6 +2693,7 @@ impl eframe::App for DiaryApp {
             }
         }
         self.handle_shortcuts(&ctx);
+        self.ai_poll(&ctx);
         if self.lock.is_some() {
             egui::Panel::top("header")
                 .frame(egui::Frame::new().fill(p.header).inner_margin(egui::Margin::symmetric(14, 10)))
@@ -2646,6 +2721,9 @@ impl eframe::App for DiaryApp {
         self.password_window(&ctx);
         self.location_window(&ctx);
         self.shortcuts_window(&ctx);
+        self.ai_setup_window(&ctx);
+        self.ai_task_window(&ctx);
+        self.templates_window(&ctx);
         self.recovery_window(&ctx);
         self.trash_window(&ctx);
         self.insights_window(&ctx);
@@ -2844,7 +2922,9 @@ mod tests {
             pinned: false,
             sensitive: false,
             attachments: Vec::new(),
+            ai: false,
             focus: 0,
+            prompt_offset: 0,
             want_focus: None,
         }
     }
@@ -3399,6 +3479,73 @@ mod tests {
             }
         }
         assert!(app.show_recovery && !hint_shown_before);
+    }
+
+    #[test]
+    fn templates_fill_the_page_and_a_default_applies_to_new_entries() {
+        let mut app = app_with_entries();
+        app.new_entry(d(2026, 10, 9));
+        assert_eq!(app.editor.as_ref().unwrap().text, "", "no default template: a blank page");
+
+        app.apply_template("Gratitude");
+        let text = app.editor.as_ref().unwrap().text.clone();
+        assert!(text.starts_with("## Three things I'm grateful for"), "{text}");
+        // Using another one on a page that already has text adds it below.
+        app.apply_template("Dream log");
+        let text = app.editor.as_ref().unwrap().text.clone();
+        assert!(text.contains("Three things") && text.contains("## What I remember"));
+        app.apply_template("No such template");
+        assert_eq!(app.editor.as_ref().unwrap().text, text, "unknown names do nothing");
+
+        // Your own template, with placeholders, used for every new entry.
+        app.data.templates.push(templates::Template { name: "Mine".into(), body: "# {weekday} {time}\n\n".into() });
+        app.data.settings.default_template = "Mine".into();
+        app.new_entry_at(d(2026, 10, 9), Some(7)); // 7:00 on a Friday
+        assert_eq!(app.editor.as_ref().unwrap().text, "# Friday 07:00\n\n");
+        assert!(app.template_names().iter().any(|n| n == "Mine") && app.template_names().iter().any(|n| n == "Daily review"));
+    }
+
+    #[test]
+    fn saving_templates_checks_names_and_keeps_the_draft_when_something_is_wrong() {
+        let mut app = app_with_entries();
+        let draft = |name: &str, body: &str| templates::Draft { index: None, name: name.into(), body: body.into() };
+
+        for (name, body, expect) in [("", "x", "name"), ("gratitude", "x", "already"), ("New one", "  ", "empty")] {
+            app.templates.draft = Some(draft(name, body));
+            app.save_template_draft_for_test();
+            assert!(app.templates.msg.contains(expect), "{name:?}: {}", app.templates.msg);
+            assert!(app.templates.draft.is_some(), "the draft is kept so nothing typed is lost");
+        }
+        app.templates.draft = Some(draft("Morning", "## Plan\n"));
+        app.save_template_draft_for_test();
+        assert!(app.templates.draft.is_none() && app.templates.msg.is_empty());
+        assert_eq!(app.data.templates.len(), 1);
+
+        // Renaming keeps it as the default; editing in place does not duplicate it.
+        app.data.settings.default_template = "Morning".into();
+        app.templates.draft = Some(templates::Draft { index: Some(0), name: "Morning pages".into(), body: "## Plan\n".into() });
+        app.save_template_draft_for_test();
+        assert_eq!((app.data.templates.len(), app.data.settings.default_template.as_str()), (1, "Morning pages"));
+    }
+
+    #[test]
+    fn the_templates_window_and_prompt_bar_render() {
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        let mut app = app_with_entries();
+        app.data.templates.push(templates::Template { name: "Mine".into(), body: "x".into() });
+        app.templates.open = true;
+        app.new_entry(d(2026, 10, 9));
+        for draft in [None, Some(templates::Draft::default())] {
+            app.templates.draft = draft;
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    app.templates_window(ui.ctx());
+                    app.entry_window(ui.ctx());
+                });
+                out.textures_delta.clear();
+            }
+        }
     }
     #[test]
     fn all_calendar_views_render() {

@@ -37,7 +37,7 @@ fn daypart(hour: usize) -> usize {
 }
 
 fn in_range(e: &Entry, from: NaiveDate, to: NaiveDate) -> bool {
-    parse_date(&e.date).is_some_and(|d| d >= from && d <= to)
+    !e.generated && parse_date(&e.date).is_some_and(|d| d >= from && d <= to)
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
