@@ -176,7 +176,7 @@ impl DiaryApp {
                         for (t, name) in [(Tab::Mood, "Mood patterns"), (Tab::Writing, "Writing"), (Tab::Review, "Review")] {
                             let mut b = egui::Button::new(RichText::new(name).strong().color(Color32::WHITE));
                             if tab == t {
-                                b = b.fill(Color32::from_rgb(23, 37, 84)).stroke(Stroke::new(2.0, p.accent));
+                                b = b.fill(theme::shades().selected_button).stroke(Stroke::new(2.0, p.accent));
                             }
                             if ui.add(b).clicked() {
                                 tab = t;

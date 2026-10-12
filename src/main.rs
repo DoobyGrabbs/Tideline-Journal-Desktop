@@ -21,11 +21,20 @@ mod recovery;
 mod reports;
 mod stats;
 mod templates;
+mod theme;
 mod trash;
 mod vault;
 
-const BLUE: Color32 = Color32::from_rgb(37, 99, 235);
-const BLUE_HOVER: Color32 = Color32::from_rgb(29, 78, 216);
+/// The theme's button colour (white text goes on top of it).
+fn blue() -> Color32 {
+    theme::shades().button
+}
+
+
+fn blue_hover() -> Color32 {
+    theme::shades().button_hover
+}
+
 const RED: Color32 = Color32::from_rgb(220, 38, 38);
 const GREY: [u8; 3] = [156, 163, 175];
 
@@ -50,40 +59,41 @@ struct Palette {
 
 fn palette(ctx: &egui::Context) -> Palette {
     let c = |r, g, b| Color32::from_rgb(r, g, b);
+    let t = theme::shades();
     if ctx.theme() == egui::Theme::Dark {
         Palette {
-            page_bg: c(15, 23, 42),
-            panel_bg: c(30, 41, 59),
-            header: c(30, 58, 138),
-            accent: c(96, 165, 250),
-            cell: c(30, 41, 59),
+            page_bg: t.dark_page,
+            panel_bg: t.dark_panel,
+            header: t.dark_header,
+            accent: t.dark_accent,
+            cell: t.dark_panel,
             cell_border: c(71, 85, 105),
-            weekend: c(22, 33, 62),
+            weekend: t.dark_weekend,
             today: c(20, 83, 45),
             hover: c(66, 56, 20),
-            head_bg: c(30, 58, 138),
-            head_text: c(191, 219, 254),
+            head_bg: t.dark_header,
+            head_text: t.dark_tint_text,
             day_num: c(226, 232, 240),
             muted: c(148, 163, 184),
-            title: c(147, 197, 253),
+            title: t.dark_title,
             ink: c(241, 245, 249),
         }
     } else {
         Palette {
-            page_bg: c(240, 247, 255),
+            page_bg: t.light_page,
             panel_bg: Color32::WHITE,
-            header: BLUE,
-            accent: BLUE,
+            header: t.button,
+            accent: t.button,
             cell: Color32::WHITE,
             cell_border: c(203, 213, 225),
-            weekend: c(224, 242, 254),
+            weekend: t.light_weekend,
             today: c(220, 252, 231),
             hover: c(254, 249, 195),
-            head_bg: c(219, 234, 254),
-            head_text: c(30, 64, 175),
+            head_bg: t.light_tint,
+            head_text: t.light_tint_text,
             day_num: c(51, 65, 85),
             muted: c(71, 85, 105),
-            title: c(30, 64, 175),
+            title: t.light_tint_text,
             ink: c(30, 41, 59),
         }
     }
@@ -923,6 +933,18 @@ clear_open_files(); // leftovers from opening attachments last time
         }
     }
 
+    /// Switch the colour theme now and remember it for next time (the lock screen uses it too).
+    fn set_colour_theme(&mut self, ctx: &egui::Context, accent: [u8; 3]) {
+        if !theme::set_accent(accent) {
+            return;
+        }
+        apply_theme(ctx);
+        let saved = if accent == theme::DEFAULT { None } else { Some(accent) };
+        if let Err(e) = location::set_accent(saved) {
+            self.status = format!("Save failed: couldn't remember the colour theme ({e})");
+        }
+    }
+
     /// Open maximised or full screen, as chosen in Settings. This runs once, on the first frame,
     /// because asking for it when the window is created gets overridden by the initial size.
     fn apply_start_mode(&mut self, ctx: &egui::Context) {
@@ -1203,8 +1225,8 @@ clear_open_files(); // leftovers from opening attachments last time
                 // Settings cog: the last item in the header.
                 let (rect, cog) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::click());
                 let cog = cog.on_hover_text("Settings");
-                ui.painter().rect_filled(rect, 8.0, if cog.hovered() || cog.is_pointer_button_down_on() { BLUE_HOVER } else { BLUE });
-                paint_cog(ui.painter(), rect.center(), 11.0, Color32::WHITE, if cog.hovered() { BLUE_HOVER } else { BLUE });
+                ui.painter().rect_filled(rect, 8.0, if cog.hovered() || cog.is_pointer_button_down_on() { blue_hover() } else { blue() });
+                paint_cog(ui.painter(), rect.center(), 11.0, Color32::WHITE, if cog.hovered() { blue_hover() } else { blue() });
                 let mut settings_changed = false;
                 egui::Popup::menu(&cog).show(|ui| {
                     ui.set_min_width(300.0);
@@ -1271,6 +1293,33 @@ clear_open_files(); // leftovers from opening attachments last time
 
                     ui.separator();
                     heading(ui, "DISPLAY");
+                    ui.menu_button("Colour theme", |ui| {
+                        let current = theme::accent();
+                        let mut chosen = None;
+                        for (name, colour) in theme::PRESETS {
+                            ui.horizontal(|ui| {
+                                let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                                let shade = theme::derive(colour).button;
+                                ui.painter().rect_filled(rect, 4.0, shade);
+                                if ui.radio(current == colour, name).clicked() {
+                                    chosen = Some(colour);
+                                }
+                            });
+                        }
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            let mut custom = current;
+                            if ui.color_edit_button_srgb(&mut custom).changed() {
+                                chosen = Some(custom);
+                            }
+                            let label = if theme::preset_name(current).is_none() { "Custom colour (in use)" } else { "Pick your own colour" };
+                            ui.label(label);
+                        });
+                        ui.label(RichText::new("Shades are worked out from your colour,\nand adjusted so text stays easy to read.").small());
+                        if let Some(colour) = chosen {
+                            self.set_colour_theme(ui.ctx(), colour);
+                        }
+                    });
                     ui.menu_button("Window on startup", |ui| {
                         for (mode, label) in [
                             (location::StartMode::Normal, "Normal window"),
@@ -1368,7 +1417,7 @@ clear_open_files(); // leftovers from opening attachments last time
                     let selected = self.view == view;
                     let mut button = egui::Button::new(RichText::new(label).strong().color(Color32::WHITE));
                     if selected {
-                        button = button.fill(Color32::from_rgb(23, 37, 84)).stroke(Stroke::new(2.0, p.accent));
+                        button = button.fill(theme::shades().selected_button).stroke(Stroke::new(2.0, p.accent));
                     }
                     if ui.add(button).clicked() {
                         self.view = view;
@@ -1845,7 +1894,7 @@ clear_open_files(); // leftovers from opening attachments last time
             let done = words >= goal;
             let bar = egui::ProgressBar::new((words as f32 / goal as f32).min(1.0))
                 .text(RichText::new(format!("{words} / {goal} words{}", if done { "  ✓" } else { "" })).color(Color32::WHITE))
-                .fill(if done { Color32::from_rgb(22, 163, 74) } else { BLUE })
+                .fill(if done { Color32::from_rgb(22, 163, 74) } else { blue() })
                 .desired_width(f32::INFINITY);
             ui.add(bar);
         } else if words > 0 {
@@ -2470,7 +2519,7 @@ clear_open_files(); // leftovers from opening attachments last time
                             ui.add(
                                 egui::ProgressBar::new((total as f32 / goal as f32).min(1.0))
                                     .text(RichText::new(format!("day: {total} / {goal}{}", if done { "  ✓" } else { "" })).color(Color32::WHITE))
-                                    .fill(if done { Color32::from_rgb(22, 163, 74) } else { BLUE })
+                                    .fill(if done { Color32::from_rgb(22, 163, 74) } else { blue() })
                                     .desired_width(210.0),
                             );
                         }
@@ -2651,29 +2700,30 @@ clear_open_files(); // leftovers from opening attachments last time
 }
 
 fn make_visuals(dark: bool) -> egui::Visuals {
+    let t = theme::shades();
     let mut v = if dark { egui::Visuals::dark() } else { egui::Visuals::light() };
     let (page, window, stroke) = if dark {
-        (Color32::from_rgb(15, 23, 42), Color32::from_rgb(30, 41, 59), Color32::from_rgb(148, 163, 184))
+        (t.dark_page, t.dark_panel, Color32::from_rgb(148, 163, 184))
     } else {
-        (Color32::from_rgb(240, 247, 255), Color32::WHITE, Color32::from_rgb(100, 116, 139))
+        (t.light_page, Color32::WHITE, Color32::from_rgb(100, 116, 139))
     };
     v.panel_fill = page;
     v.window_fill = window;
     v.window_corner_radius = 0.into();
     v.window_stroke = Stroke::new(1.0, stroke);
     v.window_shadow = popup_shadow(dark);
-    v.extreme_bg_color = if dark { Color32::from_rgb(15, 23, 42) } else { Color32::WHITE };
+    v.extreme_bg_color = if dark { t.dark_page } else { Color32::WHITE };
     for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
         w.corner_radius = 8.into();
         w.fg_stroke = Stroke::new(1.0, Color32::WHITE);
     }
-    v.widgets.inactive.weak_bg_fill = BLUE;
-    v.widgets.inactive.bg_fill = BLUE;
-    v.widgets.hovered.weak_bg_fill = BLUE_HOVER;
-    v.widgets.hovered.bg_fill = BLUE_HOVER;
-    v.widgets.active.weak_bg_fill = BLUE_HOVER;
-    v.widgets.active.bg_fill = BLUE_HOVER;
-    v.selection.bg_fill = if dark { Color32::from_rgb(30, 64, 175) } else { Color32::from_rgb(147, 197, 253) };
+    v.widgets.inactive.weak_bg_fill = blue();
+    v.widgets.inactive.bg_fill = blue();
+    v.widgets.hovered.weak_bg_fill = blue_hover();
+    v.widgets.hovered.bg_fill = blue_hover();
+    v.widgets.active.weak_bg_fill = blue_hover();
+    v.widgets.active.bg_fill = blue_hover();
+    v.selection.bg_fill = if dark { t.dark_selection } else { t.light_selection };
     v
 }
 
@@ -2698,6 +2748,12 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// Use the current colour theme everywhere (call after `theme::set_accent`).
+fn apply_theme(ctx: &egui::Context) {
+    ctx.set_visuals_of(egui::Theme::Light, make_visuals(false));
+    ctx.set_visuals_of(egui::Theme::Dark, make_visuals(true));
+}
+
 fn setup_style(ctx: &egui::Context) {
     setup_fonts(ctx);
     // Follow the system light/dark setting.
@@ -2705,8 +2761,7 @@ fn setup_style(ctx: &egui::Context) {
         o.theme_preference = egui::ThemePreference::System;
         o.zoom_with_keyboard = false; // the app has its own, saved, text size
     });
-    ctx.set_visuals_of(egui::Theme::Light, make_visuals(false));
-    ctx.set_visuals_of(egui::Theme::Dark, make_visuals(true));
+    apply_theme(ctx);
     ctx.global_style_mut(|s| {
         s.spacing.button_padding = vec2(12.0, 6.0);
         for font in s.text_styles.values_mut() {
@@ -2812,6 +2867,7 @@ fn main() -> eframe::Result {
         "Diary",
         options,
         Box::new(|cc| {
+            theme::set_accent(location::accent().unwrap_or(theme::DEFAULT));
             setup_style(&cc.egui_ctx);
             Ok(Box::new(DiaryApp::new()))
         }),
@@ -2840,7 +2896,7 @@ fn popup_header(ui: &mut egui::Ui, p: &Palette, title: &str) -> bool {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Painted cross: the "✕" glyph isn't in egui's default font and shows up as a box.
                 let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
-                let fill = if resp.hovered() { RED } else { BLUE };
+                let fill = if resp.hovered() { RED } else { blue() };
                 ui.painter().rect_filled(rect, 8.0, fill);
                 let s = Stroke::new(2.5, Color32::WHITE);
                 let r = rect.shrink(11.0);
@@ -3646,6 +3702,32 @@ mod tests {
     }
 
     #[test]
+    fn choosing_a_colour_theme_recolours_the_app_and_is_remembered() {
+        let _turn = location::CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        let before = palette(&ctx).header;
+        let btn_before = blue();
+
+        let rose = theme::PRESETS[3].1;
+        app.set_colour_theme(&ctx, rose);
+        assert_ne!(palette(&ctx).header, before, "the header changes colour");
+        assert_ne!(blue(), btn_before, "buttons change colour");
+        assert_eq!(ctx.global_style().visuals.widgets.inactive.bg_fill, blue(), "widget visuals follow too");
+        assert_eq!(location::accent(), Some(rose), "remembered for the lock screen next time");
+        assert_ne!(heat_color(3, false), heat_color(3, true));
+
+        // Choosing the same one again changes nothing; going back to the original clears the saved colour.
+        app.set_colour_theme(&ctx, rose);
+        assert!(app.status.is_empty() || !app.status.contains("failed"));
+        app.set_colour_theme(&ctx, theme::DEFAULT);
+        assert_eq!(location::accent(), None);
+        assert_eq!(palette(&ctx).header, before);
+        assert_eq!(blue(), btn_before);
+    }
+
+    #[test]
     fn the_start_mode_is_applied_once_on_the_first_frame() {
         let commands = |app: &mut DiaryApp| -> Vec<egui::ViewportCommand> {
             let ctx = egui::Context::default();
@@ -3909,9 +3991,9 @@ fn mood_badge(ui: &mut egui::Ui, mood: u8) {
 
 /// Heat-map shade for a level from 0 (nothing written) to 4 (a lot).
 fn heat_color(level: u8, dark: bool) -> Color32 {
-    const LIGHT: [[u8; 3]; 5] = [[226, 232, 240], [191, 219, 254], [147, 197, 253], [59, 130, 246], [29, 78, 216]];
-    const DARK: [[u8; 3]; 5] = [[30, 41, 59], [30, 58, 138], [37, 99, 235], [96, 165, 250], [191, 219, 254]];
-    rgb(if dark { DARK } else { LIGHT }[usize::from(level.min(4))])
+    let t = theme::shades();
+    let ramp = if dark { t.heat_dark } else { t.heat_light };
+    ramp[usize::from(level.min(4))]
 }
 
 /// Daily mood dots with a 7-day average line, over one year.

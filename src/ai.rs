@@ -728,7 +728,7 @@ impl DiaryApp {
                                         }
                                     });
                                     ui.label(RichText::new(format!("Downloading {model}")).color(p.ink));
-                                    ui.add(egui::ProgressBar::new(progress.as_ref().and_then(percent).unwrap_or(0.0)).text(RichText::new(text).color(Color32::WHITE)).fill(BLUE));
+                                    ui.add(egui::ProgressBar::new(progress.as_ref().and_then(percent).unwrap_or(0.0)).text(RichText::new(text).color(Color32::WHITE)).fill(blue()));
                                     cancel_pull = ui.button("Cancel download").clicked();
                                 }
                             }

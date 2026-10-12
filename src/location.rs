@@ -32,6 +32,9 @@ struct Config {
     data_dir: Option<PathBuf>,
     #[serde(default)]
     start: StartMode,
+    /// The chosen colour theme's accent colour (None = the original blue).
+    #[serde(default)]
+    accent: Option<[u8; 3]>,
 }
 
 /// Where per-user app files go (`%APPDATA%` on Windows).
@@ -101,6 +104,18 @@ pub fn start_mode() -> StartMode {
 pub fn set_start_mode(mode: StartMode) -> Result<(), String> {
     let mut settings = load_config(&config_path());
     settings.start = mode;
+    save_config(&config_path(), &settings)
+}
+
+/// The saved accent colour for the colour theme, if one was chosen.
+pub fn accent() -> Option<[u8; 3]> {
+    load_config(&config_path()).accent
+}
+
+/// Remember the accent colour (None goes back to the original blue), keeping the other settings.
+pub fn set_accent(accent: Option<[u8; 3]>) -> Result<(), String> {
+    let mut settings = load_config(&config_path());
+    settings.accent = accent;
     save_config(&config_path(), &settings)
 }
 
@@ -304,6 +319,7 @@ mod start_mode_tests {
 
     #[test]
     fn the_real_setting_helpers_use_the_throw_away_folder_in_tests() {
+        let _turn = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         set_start_mode(StartMode::Maximized).unwrap();
         assert_eq!(start_mode(), StartMode::Maximized);
         assert!(config_path().starts_with(std::env::temp_dir()));
@@ -311,3 +327,40 @@ mod start_mode_tests {
         assert_eq!(start_mode(), StartMode::Normal);
     }
 }
+
+#[cfg(test)]
+mod accent_tests {
+    use super::*;
+
+    #[test]
+    fn the_accent_is_kept_with_the_other_settings_and_old_files_have_none() {
+        let dir = std::env::temp_dir().join(format!("diary-accent-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config.json");
+        std::fs::write(&config, r#"{"data_dir": "C:/Diaries", "start": "maximized"}"#).unwrap();
+        assert_eq!(load_config(&config).accent, None);
+
+        let mut settings = load_config(&config);
+        settings.accent = Some([225, 29, 72]);
+        save_config(&config, &settings).unwrap();
+        write_config(&config, &dir.join("moved")).unwrap();
+        let back = load_config(&config);
+        assert_eq!((back.accent, back.start), (Some([225, 29, 72]), StartMode::Maximized));
+        assert_eq!(back.data_dir, Some(dir.join("moved")));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_real_accent_helpers_use_the_throw_away_folder_in_tests() {
+        let _turn = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        set_accent(Some([13, 148, 136])).unwrap();
+        assert_eq!(accent(), Some([13, 148, 136]));
+        set_accent(None).unwrap();
+        assert_eq!(accent(), None);
+    }
+}
+
+/// Tests that use the real settings helpers share one throw-away settings file, so they take turns.
+#[cfg(test)]
+pub(crate) static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

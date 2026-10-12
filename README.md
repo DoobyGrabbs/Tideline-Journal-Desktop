@@ -44,6 +44,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 **Look and feel**
 - Popup windows are draggable and resizable; light and dark mode follow your Windows setting.
 - **Window on startup** (**Settings → Window on startup**): a normal window, maximised (fills the screen, keeps the taskbar) or full screen (covers the taskbar). `F11` switches full screen on and off any time, even on the unlock screen. The choice is kept in the small plain settings file `%APPDATA%VibeDiarynfig.json` (next to the data-location setting), because the window opens before the diary is unlocked.
+- **Colour theme** (**Settings → Colour theme**): pick one of eight ready-made themes (Ocean, Indigo, Plum, Rose, Ember, Forest, Teal, Graphite) or choose any colour of your own. Every shade in light and dark mode (header, buttons, calendar, heat-map) is worked out from that one colour, and it is automatically adjusted so white button text and titles stay easy to read, whatever you pick. It applies instantly and is also used on the unlock screen (stored in the same plain `config.json`). PDF exports keep their blue headings.
 - Keyboard shortcuts (see below, or **Settings → Keyboard shortcuts**).
 
 ## Using the app
