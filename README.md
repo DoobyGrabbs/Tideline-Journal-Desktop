@@ -15,7 +15,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 - **Random**: the Random button (or `Ctrl+R`) jumps to a random entry from the past. Private entries are never picked.
 - **Pinned entries**: click the star on an entry to pin it. Pinned entries are starred on the calendar and listed under **Pinned** in the header.
 - **Insights** (header button): *Mood patterns* (which days, times of day, entry lengths and categories go with happier or lower ratings), *Writing* (most-used words, when you write, longest entries) and *Review* (a recap of a week, month or year with highlights and pictures, which can be saved as a PDF).
-- **Search** across all entries from the box in the header; click a result to jump to its day.
+- **Search** across all entries from the box in the header (`Ctrl+F`). Every word you type must appear, in any order and any capitalisation; put a phrase in "quotes" to match it exactly, and a `-` before a word to leave out entries containing it. Matches are highlighted in a short excerpt. The **Filters** button narrows results by category, mood, time period (or between two dates), starred entries and entries with attachments, and results can be sorted newest first, oldest first or by best match. Filters work with or without words. Category, date and attachment names are searched too; private entries are found only by category or date, never by their text. Click a result to jump to its day.
 
 **Writing**
 - **WYSIWYG rich text editor** (Markdown underneath): type in a single page where bold looks bold, headings are large and the Markdown marks disappear. The marks show on the line your cursor is on, or everywhere with "Show formatting marks". A toolbar offers bold, italic, strikethrough, code, three heading sizes, bulleted and numbered lists and quotes.
@@ -39,6 +39,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 - **Text size**: **Settings → Text size**, or `Ctrl +` / `Ctrl -` (and `Ctrl 0` to reset), makes everything bigger or smaller; the choice is remembered.
 - **Export to PDF** (**Settings → Export to PDF**, or `Ctrl+E`): a day, week, month, year or everything, with or without pictures. Private entries are left out unless you tick the box for them.
 - **Backup**: **Settings → Back up encrypted copy** saves a copy of the encrypted file wherever you like.
+- **Automatic backups** (**Settings → Automatic backups**): the first time the diary is opened each day, and only if it has changed, a dated copy of the encrypted file is saved in a `backups` folder next to it. You choose how many to keep (default 10, or off); older ones are removed. The window lists them, can make one now, open the folder, delete one, or **restore** one: the current file is first saved as a "before restore" safety copy (never removed automatically), the diary locks, and you unlock it with the password that copy had when it was made. Backups are encrypted exactly like the diary.
 - **Data location**: **Settings → Data location** shows where the diary lives, moves it to another folder, or opens a diary (such as a backup) from another folder.
 
 **Look and feel**
@@ -60,7 +61,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 | Look back | **Random** or `Ctrl+R` |
 | Move around | **◀** / **▶** or the left/right arrow keys step a day, week, month or year; **Today** (`Ctrl+T`) jumps back |
 | Move an entry | Drag its pill onto another day (or, in the Day view, another hour) |
-| Search | `Ctrl+F`, then type; clear the box to go back to the day view |
+| Search | `Ctrl+F`, then type (or use **Filters**); **Clear** goes back to the day view |
 | Save an entry | **Save**, `Ctrl+S` or `Ctrl+Enter` |
 | Lock | **Lock** or `Ctrl+L` |
 | Full screen | `F11` (or **Settings → Full screen on / off**) |

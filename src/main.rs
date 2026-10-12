@@ -13,12 +13,14 @@ mod faces;
 mod gallery;
 mod live;
 mod insights;
+mod backups;
 mod location;
 mod markdown;
 mod ollama;
 mod pinned;
 mod recovery;
 mod reports;
+mod search;
 mod stats;
 mod templates;
 mod theme;
@@ -173,11 +175,13 @@ struct Settings {
     ai_enabled: bool,
     /// The Ollama model the AI helpers use.
     ai_model: String,
+    /// How many automatic backups to keep; 0 turns them off.
+    backup_keep: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true, default_template: String::new(), show_prompts: true, ai_enabled: false, ai_model: String::new() }
+        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true, default_template: String::new(), show_prompts: true, ai_enabled: false, ai_model: String::new(), backup_keep: backups::DEFAULT_KEEP }
     }
 }
 
@@ -388,6 +392,13 @@ struct DiaryApp {
     recovery_arm: u8,
     recovery_hint_dismissed: bool,
     show_trash: bool,
+    show_backups: bool,
+    backup_items: Vec<backups::Backup>,
+    backups_dirty: bool,
+    backup_restore_arm: Option<std::path::PathBuf>,
+    backup_msg: String,
+    /// The day the automatic backup was last checked (YYYY-MM-DD).
+    backup_day: String,
     trash_arm: bool,
     /// The entry most recently moved to the bin, for the Undo button.
     last_trashed: Option<u64>,
@@ -407,6 +418,7 @@ struct DiaryApp {
     /// Scroll the day view to the working hours on its next frame.
     day_scroll_pending: bool,
     search: String,
+    search_state: search::SearchState,
     last_activity: std::time::Instant,
     /// Images used by an unsaved draft, kept while the diary is locked.
     draft_images: BTreeMap<String, String>,
@@ -458,6 +470,12 @@ clear_open_files(); // leftovers from opening attachments last time
             recovery_arm: 0,
             recovery_hint_dismissed: false,
             show_trash: false,
+            show_backups: false,
+            backup_items: Vec::new(),
+            backups_dirty: true,
+            backup_restore_arm: None,
+            backup_msg: String::new(),
+            backup_day: String::new(),
             trash_arm: false,
             last_trashed: None,
             insights: insights::InsightsState::default(),
@@ -472,6 +490,7 @@ clear_open_files(); // leftovers from opening attachments last time
             drag: None,
             day_scroll_pending: true,
             search: String::new(),
+            search_state: search::SearchState::new(),
             last_activity: std::time::Instant::now(),
             draft_images: BTreeMap::new(),
             editor_msg: String::new(),
@@ -578,6 +597,7 @@ clear_open_files(); // leftovers from opening attachments last time
         self.lightbox = None;
         self.insights.clear();
         self.search.clear();
+        self.search_state.reset();
         self.show_categories = false;
         self.show_password = false;
         self.show_location = false;
@@ -586,6 +606,8 @@ clear_open_files(); // leftovers from opening attachments last time
         self.show_recovery = false;
         self.recovery_shown = None;
         self.show_trash = false;
+        self.show_backups = false;
+        self.backup_restore_arm = None;
         self.last_trashed = None;
         self.show_shortcuts = false;
         self.lock = Some(Lock::new(mode));
@@ -929,6 +951,7 @@ clear_open_files(); // leftovers from opening attachments last time
             self.month = d.with_day(1).unwrap();
             self.day_scroll_pending = true;
             self.search.clear();
+            self.search_state.reset();
             self.status = format!("A look back: {}", d.format("%A %e %B %Y"));
         }
     }
@@ -964,6 +987,7 @@ clear_open_files(); // leftovers from opening attachments last time
         self.month = t.with_day(1).unwrap();
         self.day_scroll_pending = true;
         self.search.clear();
+        self.search_state.reset();
     }
 
     /// Keyboard shortcuts (listed in the "Keyboard shortcuts" window).
@@ -1221,6 +1245,15 @@ clear_open_files(); // leftovers from opening attachments last time
                     .margin(egui::Margin::symmetric(8, 5))
                     .desired_width(190.0),
             );
+            let filters_on = self.search_state.open || self.search_state.filters.is_active();
+            let label = RichText::new("Filters").color(Color32::WHITE);
+            let mut button = egui::Button::new(label);
+            if filters_on {
+                button = button.fill(theme::shades().selected_button).stroke(Stroke::new(2.0, p.accent));
+            }
+            if ui.add(button).on_hover_text("Search by category, mood, dates and more").clicked() {
+                self.search_state.open = !self.search_state.open;
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Settings cog: the last item in the header.
                 let (rect, cog) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::click());
@@ -1280,6 +1313,11 @@ clear_open_files(); // leftovers from opening attachments last time
                     }
                     if ui.button("Back up encrypted copy…").clicked() {
                         self.backup();
+                        ui.close();
+                    }
+                    if ui.button("Automatic backups…").on_hover_text("Daily encrypted copies, and restoring one").clicked() {
+                        self.show_backups = true;
+                        self.backups_dirty = true;
                         ui.close();
                     }
                     if ui.button("Data location…").clicked() {
@@ -1867,7 +1905,7 @@ clear_open_files(); // leftovers from opening attachments last time
 
     fn day_panel(&mut self, ui: &mut egui::Ui) {
         let p = palette(ui.ctx());
-        if !self.search.trim().is_empty() {
+        if self.search_state.showing(&self.search) {
             self.search_results(ui, &p);
             return;
         }
@@ -2119,55 +2157,6 @@ clear_open_files(); // leftovers from opening attachments last time
                 std::process::Command::new("cmd").args(["/C", "start", ""]).arg(&path).spawn().ok();
             }
             Err(e) => self.status = format!("Save failed: couldn't open the file ({e})"),
-        }
-    }
-
-    /// Replaces the day panel while something is typed in the search box.
-    fn search_results(&mut self, ui: &mut egui::Ui, p: &Palette) {
-        let q = self.search.trim().to_lowercase();
-        let mut hits: Vec<&Entry> = self
-            .data
-            .entries
-            .iter()
-            .filter(|e| (!e.sensitive && e.text.to_lowercase().contains(&q)) || e.category.to_lowercase().contains(&q) || e.date.contains(&q))
-            .collect();
-        hits.sort_by(|a, b| b.added_at.cmp(&a.added_at));
-
-        ui.label(RichText::new("Search results").size(22.0).strong().color(p.title));
-        ui.label(RichText::new(format!("{} found. Click one to open its day.", hits.len())).color(p.muted));
-        ui.add_space(6.0);
-        ui.separator();
-
-        let mut jump = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for e in hits.iter().take(100) {
-                let c = category_color(&self.data.categories, &e.category);
-                let fg = text_on(c);
-                let card = egui::Frame::new().fill(c).corner_radius(10).inner_margin(10).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(&e.date).strong().color(fg));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(&e.category).small().color(fg));
-                        });
-                    });
-                    let mut s = entry_label(e);
-                    if s.chars().count() > 110 {
-                        s = s.chars().take(110).collect::<String>() + "…";
-                    }
-                    ui.label(RichText::new(s).color(fg));
-                });
-                let resp = ui.interact(card.response.rect, ui.id().with(("hit", e.id)), Sense::click());
-                if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    jump = NaiveDate::parse_from_str(&e.date, "%Y-%m-%d").ok();
-                }
-                ui.add_space(6.0);
-            }
-        });
-        if let Some(d) = jump {
-            self.selected = d;
-            self.month = d.with_day(1).unwrap();
-            self.search.clear();
         }
     }
 
@@ -2775,6 +2764,9 @@ impl eframe::App for DiaryApp {
         let ctx = ui.ctx().clone();
         self.apply_start_mode(&ctx);
         let p = palette(&ctx);
+        if self.lock.is_none() {
+            self.auto_backup();
+        }
         // Auto-lock after a period without any input.
         if self.lock.is_none() {
             if ctx.input(|i| !i.events.is_empty()) {
@@ -2847,6 +2839,7 @@ impl eframe::App for DiaryApp {
         self.templates_window(&ctx);
         self.recovery_window(&ctx);
         self.trash_window(&ctx);
+        self.backups_window(&ctx);
         self.insights_window(&ctx);
         self.lightbox_window(&ctx);
         self.pinned_window(&ctx);
@@ -3699,6 +3692,81 @@ mod tests {
         assert_eq!(f11(&ctx, &mut app, true), vec![false], "and back");
         app.lock = Some(Lock::new(LockMode::Create));
         assert_eq!(f11(&ctx, &mut app, false), vec![true], "it works on the lock screen too");
+    }
+
+    #[test]
+    fn the_search_panel_filters_caches_and_clears() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        let mut frame = |app: &mut DiaryApp| {
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.day_panel(ui));
+                out.textures_delta.clear();
+            }
+        };
+        assert!(!app.search_state.showing(&app.search), "the day panel shows normally");
+
+        app.search = "coffee".into();
+        frame(&mut app);
+        assert_eq!(app.search_state.hit_count(), Some(1));
+        // Editing an entry changes the diary, so the results are recalculated.
+        app.data.entries[0].text = "Coffee again".into();
+        app.rev += 1;
+        app.search = "coffee".into();
+        frame(&mut app);
+        assert_eq!(app.search_state.hit_count(), Some(2));
+
+        // Filters alone (no words) list entries too.
+        app.search.clear();
+        app.search_state.filters.mood = 2;
+        frame(&mut app);
+        assert_eq!(app.search_state.hit_count(), Some(1));
+        app.search_state.filters.period = search::Period::Custom;
+        frame(&mut app);
+
+        // Locking forgets the question.
+        app.lock_now();
+        assert!(app.search.is_empty() && !app.search_state.filters.is_active() && !app.search_state.showing(""));
+    }
+
+    #[test]
+    fn restoring_a_backup_locks_the_diary_and_the_backups_window_draws() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        app.show_backups = true;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.backups_window(ui.ctx()));
+            out.textures_delta.clear();
+        }
+
+        let dir = std::env::temp_dir().join(format!("diary-restore-ui-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("entries.json");
+        let write = |pw: &str| {
+            let v = vault::Vault::create(pw).unwrap();
+            std::fs::write(&file, v.seal(&serde_json::to_vec(&fresh_data()).unwrap()).unwrap()).unwrap();
+        };
+        write("old");
+        let backup = backups::snapshot(&file, "2026-10-01-080000", 10, false).unwrap().unwrap();
+        write("new");
+
+        app.vault = Some(vault::Vault::create("new").unwrap());
+        app.restore_backup(&file, &backup);
+        assert!(app.lock.is_some() && app.vault.is_none() && app.data.entries.is_empty(), "locked, nothing left in memory");
+        assert!(!app.show_backups);
+        assert!(app.lock.as_ref().unwrap().error.contains("Backup restored"));
+        let env = vault::Envelope::parse(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert!(vault::Vault::unlock(&env, "old").is_ok());
+
+        // A bad backup leaves everything alone.
+        let mut app = app_with_entries();
+        app.restore_backup(&file, &dir.join("missing.json"));
+        assert!(app.lock.is_none() && !app.data.entries.is_empty());
+        assert!(app.backup_msg.contains("failed"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
