@@ -141,3 +141,38 @@ Make Pinned a full screen with the side menu still visible, not a pop-up.
 2. **Filter controls:**
    - Put the filter dropdowns (category, mood) on one row that wraps.
    - Replace the "Starred only" and "Has attachment" radio buttons with toggle pills, since they can each be on or off.
+
+## Settings screen
+
+**Replace the gear pop-up menu with a full Settings screen.** The pop-up is too small, needs scrolling, and cuts off long labels. Clicking Settings in the side menu (or pressing Ctrl+,) opens this screen.
+
+1. **Left column** (same width and colour as the side menu, which it replaces while Settings is open):
+   - "‹ Back to journal" at the top.
+   - A small "SETTINGS" label.
+   - Section links with icons: Security, Writing, Your data. Clicking one scrolls to that section and highlights it.
+   - Add new sections here later (e.g. Appearance) rather than making the page longer.
+2. **Main area:** content max width about 820 px, so lines stay readable on wide screens.
+   - Serif "Settings" (34 px), with the subtitle "Changes save as you make them." There's no Save button; every change applies straight away.
+3. **Sections:**
+   - Each section has a small uppercase heading (12 px, text_3).
+   - Below it is one card (surface colour, radius 14) holding its rows, with 1 px dividers between rows.
+4. **Each row:** a name (15 px, weight 500) and a one-line explanation (13 px, text_3) on the left, and its control on the right. Rows are at least 64 px tall. The control depends on the setting:
+   - **On/off settings:** a switch (44×26, accent when on, #3A414B when off). Use it instead of a ✓ menu item.
+   - **Choose-one settings:** a dropdown.
+   - **Actions:** an outline button (34 px high).
+5. **Contents:**
+   - **Security:**
+     - Password: [Change password]
+     - Recovery key: [Show key], with a note to keep a copy safe
+     - Auto-lock: dropdown, 1 min / 5 min / 15 min / 1 hour / Never
+     - Hide when in the background: switch
+   - **Writing:**
+     - Writing prompts: switch
+     - Daily word goal: dropdown, Off / 100 / 250 / 500 / 750 words
+     - Templates: [Manage]
+     - AI helpers: [Set up]
+   - **Your data:**
+     - Automatic backups: switch, with the last backup time in its explanation line
+     - Back up now: [Back up…]
+     - Export to PDF: [Export…], with the warning "Not encrypted"
+6. **Narrow windows:** the left column stacks above the content, and row controls drop below their text instead of squashing it.

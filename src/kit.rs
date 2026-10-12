@@ -21,6 +21,10 @@ pub enum Icon {
     ChevronRight,
     ChevronDown,
     ChevronUp,
+    Shield,
+    Pencil,
+    Database,
+    Help,
     Minimize,
     Maximize,
     Restore,
@@ -135,6 +139,24 @@ pub fn paint(painter: &egui::Painter, center: Pos2, size: f32, color: Color32, i
         Icon::ChevronRight => line(&[(9.5, 6.0), (15.5, 12.0), (9.5, 18.0)]),
         Icon::ChevronDown => line(&[(6.0, 9.5), (12.0, 15.5), (18.0, 9.5)]),
         Icon::ChevronUp => line(&[(6.0, 14.5), (12.0, 8.5), (18.0, 14.5)]),
+        Icon::Shield => {
+            line(&[(12.0, 3.0), (19.5, 6.0), (19.5, 12.0), (12.0, 21.0), (4.5, 12.0), (4.5, 6.0), (12.0, 3.0)]);
+        }
+        Icon::Pencil => {
+            line(&[(4.0, 20.0), (5.0, 15.0), (16.0, 4.0), (20.0, 8.0), (9.0, 19.0), (4.0, 20.0)]);
+            line(&[(14.0, 6.0), (18.0, 10.0)]);
+        }
+        Icon::Database => {
+            line(&sample_arc(Pos2::new(12.0, 6.0), 8.0, 0.0, 360.0).iter().map(|q| (q.x, 6.0 + (q.y - 6.0) * 0.4)).collect::<Vec<_>>());
+            line(&[(4.0, 6.0), (4.0, 18.0)]);
+            line(&[(20.0, 6.0), (20.0, 18.0)]);
+            line(&sample_arc(Pos2::new(12.0, 18.0), 8.0, 180.0, 360.0).iter().map(|q| (q.x, 18.0 + (q.y - 18.0) * 0.4)).collect::<Vec<_>>());
+            line(&sample_arc(Pos2::new(12.0, 12.0), 8.0, 180.0, 360.0).iter().map(|q| (q.x, 12.0 + (q.y - 12.0) * 0.4)).collect::<Vec<_>>());
+        }
+        Icon::Help => {
+            ring(12.0, 12.0, 9.0);
+            painter.text(p(12.0, 12.4), Align2::CENTER_CENTER, "?", FontId::new(13.0 * k.max(0.7), crate::fonts::ui_bold()), color);
+        }
         Icon::Minimize => line(&[(6.0, 12.0), (18.0, 12.0)]),
         Icon::Maximize => rect(6.0, 6.0, 18.0, 18.0, 1.5),
         Icon::Restore => {
@@ -592,5 +614,20 @@ pub fn text_link(ui: &mut Ui, label: &str, icon: Icon) -> Response {
     ui.painter().text(Pos2::new(rect.min.x, rect.center().y), Align2::LEFT_CENTER, label, font.clone(), col);
     let tw = text_width(ui, label, font);
     paint(ui.painter(), Pos2::new(rect.min.x + tw + 12.0, rect.center().y), 14.0, col, icon, false);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// An on/off switch (46 x 26). The knob is dark on the accent colour when on.
+pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(48.0, 28.0), Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let accent = theme::shades().accent;
+    let track = if *on { accent } else { theme::BORDER };
+    ui.painter().rect_filled(rect, 14.0, if resp.hovered() { track.gamma_multiply(1.1) } else { track });
+    let x = if *on { rect.max.x - 14.0 } else { rect.min.x + 14.0 };
+    ui.painter().circle_filled(Pos2::new(x, rect.center().y), 10.0, if *on { theme::BG } else { theme::TEXT_2 });
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

@@ -215,11 +215,6 @@ pub fn shades() -> Shades {
     *cur.1.get_or_insert_with(|| derive(accent))
 }
 
-/// The name of the preset that has this accent colour, if any.
-pub fn preset_name(accent: Rgb) -> Option<&'static str> {
-    PRESETS.iter().find(|(_, col)| *col == accent).map(|(n, _)| *n)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

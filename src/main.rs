@@ -24,6 +24,7 @@ mod pinned;
 mod recovery;
 mod reports;
 mod search;
+mod settings;
 mod stats;
 mod templates;
 mod theme;
@@ -381,6 +382,10 @@ struct DiaryApp {
     /// Private entries the user has clicked open (forgotten on lock).
     revealed: std::collections::HashSet<u64>,
     show_pinned: bool,
+    /// The Settings page is open; the section lit up in its left column; a section to scroll to.
+    show_settings: bool,
+    settings_section: usize,
+    settings_jump: Option<usize>,
     /// Entry cards in the day panel that are showing the whole entry.
     expanded: std::collections::HashSet<u64>,
     /// The Pinned page: the category filter (None = all) and the sort order (index into `pinned::SORTS`).
@@ -416,6 +421,7 @@ impl DiaryApp {
             app.month = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
             app.insights.open = demo::wants("insights");
             app.show_pinned = demo::wants("pinned") || demo::wants("pinned-expanded");
+            app.show_settings = demo::wants("settings");
             if demo::wants("expanded") || demo::wants("pinned-expanded") {
                 app.expanded.insert(7);
             }
@@ -483,6 +489,9 @@ clear_open_files(); // leftovers from opening attachments last time
             lightbox: None,
             revealed: std::collections::HashSet::new(),
             show_pinned: false,
+            show_settings: false,
+            settings_section: 0,
+            settings_jump: None,
             expanded: std::collections::HashSet::new(),
             pinned_category: None,
             pinned_sort: 0,
@@ -606,6 +615,7 @@ clear_open_files(); // leftovers from opening attachments last time
         self.show_export = false;
         self.show_pinned = false;
         self.expanded.clear();
+        self.show_settings = false;
         self.show_recovery = false;
         self.recovery_shown = None;
         self.show_trash = false;
@@ -1249,144 +1259,6 @@ clear_open_files(); // leftovers from opening attachments last time
         }
     }
 
-    /// The contents of the Settings menu. Returns true if a saved setting changed.
-    fn settings_menu(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut settings_changed = false;
-        ui.set_min_width(300.0);
-        let muted = palette(ui.ctx()).muted;
-        // A small heading above each group of settings.
-        let heading = |ui: &mut egui::Ui, title: &str| {
-            ui.add_space(2.0);
-            ui.label(RichText::new(title).small().strong().color(muted));
-        };
-
-        heading(ui, "SECURITY");
-        if ui.button("Change password…").clicked() {
-            self.show_password = true;
-            ui.close();
-        }
-        if ui.button("Recovery key…").on_hover_text("A code that can open the diary if you forget your password").clicked() {
-            self.show_recovery = true;
-            ui.close();
-        }
-        ui.menu_button("Auto-lock", |ui| {
-            for (label, mins) in [("Off", 0), ("After 1 minute", 1), ("After 5 minutes", 5), ("After 10 minutes", 10), ("After 30 minutes", 30)] {
-                settings_changed |= ui.radio_value(&mut self.data.settings.auto_lock_minutes, mins, label).changed();
-            }
-        });
-        settings_changed |= ui
-            .checkbox(&mut self.data.settings.privacy_screen, "Hide the diary when the window is in the background")
-            .changed();
-
-        ui.separator();
-        heading(ui, "WRITING");
-        if ui.button("Templates…").on_hover_text("Ready-made starting points for an entry").clicked() {
-            self.templates.open = true;
-            ui.close();
-        }
-        settings_changed |= ui.checkbox(&mut self.data.settings.show_prompts, "Show writing prompts").changed();
-        ui.menu_button("Daily word goal", |ui| {
-            for (label, words) in [("Off", 0), ("100 words", 100), ("250 words", 250), ("500 words", 500), ("750 words", 750), ("1,000 words", 1000)] {
-                settings_changed |= ui.radio_value(&mut self.data.settings.daily_word_goal, words, label).changed();
-            }
-        });
-        if ui.button("AI helpers…").on_hover_text("Draft from notes, summarise a day, reflection questions (run on this PC with Ollama)").clicked() {
-            self.ai.setup_open = true;
-            ui.close();
-        }
-
-        ui.separator();
-        heading(ui, "YOUR DATA");
-        if ui.button("Export to PDF…").clicked() {
-            self.show_export = true;
-            ui.close();
-        }
-        if ui.button("Back up encrypted copy…").clicked() {
-            self.backup();
-            ui.close();
-        }
-        if ui.button("Automatic backups…").on_hover_text("Daily encrypted copies, and restoring one").clicked() {
-            self.show_backups = true;
-            self.backups_dirty = true;
-            ui.close();
-        }
-        if ui.button("Data location…").clicked() {
-            self.show_location = true;
-            ui.close();
-        }
-        if ui.button(format!("Recently deleted ({})…", self.data.trash.len())).clicked() {
-            self.show_trash = true;
-            ui.close();
-        }
-
-        ui.separator();
-        heading(ui, "DISPLAY");
-        ui.menu_button("Colour theme", |ui| {
-            let current = theme::accent();
-            let mut chosen = None;
-            for (name, colour) in theme::PRESETS {
-                ui.horizontal(|ui| {
-                    let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                    let shade = theme::derive(colour).accent;
-                    ui.painter().rect_filled(rect, 4.0, shade);
-                    if ui.radio(current == colour, name).clicked() {
-                        chosen = Some(colour);
-                    }
-                });
-            }
-            ui.separator();
-            ui.horizontal(|ui| {
-                let mut custom = current;
-                if ui.color_edit_button_srgb(&mut custom).changed() {
-                    chosen = Some(custom);
-                }
-                let label = if theme::preset_name(current).is_none() { "Custom colour (in use)" } else { "Pick your own colour" };
-                ui.label(label);
-            });
-            ui.label(RichText::new("Shades are worked out from your colour,\nand adjusted so text stays easy to read.").small());
-            if let Some(colour) = chosen {
-                self.set_colour_theme(ui.ctx(), colour);
-            }
-        });
-        ui.menu_button("Window on startup", |ui| {
-            for (mode, label) in [
-                (location::StartMode::Normal, "Normal window"),
-                (location::StartMode::Maximized, "Maximised (fills the screen)"),
-                (location::StartMode::Fullscreen, "Full screen (covers the taskbar)"),
-            ] {
-                if ui.radio(self.start_mode == mode, label).clicked() {
-                    self.start_mode = mode;
-                    if let Err(e) = location::set_start_mode(mode) {
-                        self.status = format!("Save failed: couldn't remember the window setting ({e})");
-                    }
-                }
-            }
-            ui.separator();
-            ui.label(RichText::new("Takes effect next time the diary starts.\nPress F11 any time to switch full screen on or off.").small());
-        });
-        if ui.button("Full screen on / off (F11)").clicked() {
-            toggle_fullscreen(ui.ctx());
-            ui.close();
-        }
-        ui.menu_button("Text size", |ui| {
-            for (label, scale) in [("80%", 0.8), ("90%", 0.9), ("100% (normal)", 1.0), ("110%", 1.1), ("125%", 1.25), ("140%", 1.4), ("160%", 1.6)] {
-                let on = (self.data.settings.ui_scale - scale).abs() < 0.01;
-                if ui.radio(on, label).clicked() {
-                    self.data.settings.ui_scale = scale;
-                    settings_changed = true;
-                }
-            }
-        });
-
-        ui.separator();
-        heading(ui, "HELP");
-        if ui.button("Keyboard shortcuts…").clicked() {
-            self.show_shortcuts = true;
-            ui.close();
-        }
-        settings_changed
-    }
-
     /// The window's title bar: logo, search box and window controls. It is also how the window
     /// is dragged (double-click to maximise).
     fn title_bar(&mut self, ui: &mut egui::Ui) {
@@ -1565,21 +1437,12 @@ clear_open_files(); // leftovers from opening attachments last time
         }
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
-            let settings = kit::nav_item(ui, Some(kit::Icon::Sliders), None, "Settings", None, false);
-            let mut changed = false;
-            egui::Popup::menu(&settings).show(|ui| {
-                ui.set_min_width(300.0);
-                // Compact rows so the whole menu fits; it scrolls if the window is very short.
-                ui.spacing_mut().item_spacing.y = 1.0;
-                ui.spacing_mut().interact_size.y = 28.0;
-                ui.spacing_mut().button_padding = vec2(10.0, 3.0);
-                let max_h = (ui.ctx().content_rect().height() - 120.0).max(240.0);
-                egui::ScrollArea::vertical().max_height(max_h).show(ui, |ui| {
-                    changed = self.settings_menu(ui);
-                });
-            });
-            if changed {
-                self.persist();
+            if kit::nav_item(ui, Some(kit::Icon::Sliders), None, "Settings", None, false).on_hover_text("Settings").clicked() {
+                self.show_settings = true;
+                self.settings_section = 0;
+                self.settings_jump = Some(0);
+                self.insights.open = false;
+                self.show_pinned = false;
             }
             if kit::nav_item(ui, Some(kit::Icon::Lock), None, "Lock journal", None, false).on_hover_text("Lock the diary (Ctrl+L)").clicked() {
                 self.lock_now();
@@ -1588,6 +1451,7 @@ clear_open_files(); // leftovers from opening attachments last time
             let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
             ui.painter().rect_filled(line, 0.0, theme::BORDER_SOFT);
         });
+
     }
     /// Copy the (already encrypted) diary file somewhere chosen by the user.
     fn backup(&mut self) {
@@ -2661,9 +2525,20 @@ impl eframe::App for DiaryApp {
                 .show(ui, |ui| self.lock_screen(ui));
             return;
         }
+        if self.show_settings && self.search_state.showing(&self.search) {
+            self.show_settings = false;
+        }
         if self.editor.is_some() {
             // Writing takes the whole window.
             self.entry_view(ui);
+        } else if self.show_settings {
+            egui::Panel::left("side")
+                .exact_size(236.0)
+                .frame(egui::Frame::new().fill(p.panel_bg).stroke(Stroke::new(1.0, p.border_soft)).inner_margin(egui::Margin::symmetric(16, 16)))
+                .show(ui, |ui| self.settings_nav(ui));
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(p.page_bg).inner_margin(egui::Margin::symmetric(36, 26)))
+                .show(ui, |ui| self.settings_page(ui));
         } else {
             egui::Panel::left("side")
                 .exact_size(236.0)
@@ -3833,6 +3708,32 @@ More words.".into();
         app.expanded.insert(id);
         app.lock_now();
         assert!(app.expanded.is_empty(), "locking forgets which cards were open");
+    }
+
+    #[test]
+    fn the_settings_page_renders_every_section_and_closes() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        app.show_settings = true;
+        for jump in [None, Some(0), Some(2), Some(4)] {
+            app.settings_jump = jump;
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    egui::Panel::left("l").show(ui, |ui| app.settings_nav(ui));
+                    egui::CentralPanel::default().show(ui, |ui| app.settings_page(ui));
+                });
+                out.textures_delta.clear();
+            }
+        }
+        // With backups turned on, the extra "Copies to keep" row shows too.
+        app.data.settings.backup_keep = 10;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| app.settings_page(ui));
+        });
+        out.textures_delta.clear();
+        app.lock_now();
+        assert!(!app.show_settings, "locking closes Settings");
     }
     #[test]
     fn choosing_a_colour_theme_recolours_the_app_and_is_remembered() {
