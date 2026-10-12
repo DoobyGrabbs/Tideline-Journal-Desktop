@@ -365,6 +365,8 @@ struct DiaryApp {
     show_marks: bool,
     /// How the window opens (kept in the small settings file, not the encrypted diary).
     start_mode: location::StartMode,
+    /// The start mode has been applied (it is done once, on the first frame).
+    start_applied: bool,
     ai: ai::AiState,
     templates: templates::TemplateState,
     show_recovery: bool,
@@ -436,6 +438,7 @@ clear_open_files(); // leftovers from opening attachments last time
             media: markdown::Media::default(),
             show_marks: false,
             start_mode: location::start_mode(),
+            start_applied: false,
             ai: ai::AiState::default(),
             templates: templates::TemplateState::default(),
             show_recovery: false,
@@ -917,6 +920,19 @@ clear_open_files(); // leftovers from opening attachments last time
             self.day_scroll_pending = true;
             self.search.clear();
             self.status = format!("A look back: {}", d.format("%A %e %B %Y"));
+        }
+    }
+
+    /// Open maximised or full screen, as chosen in Settings. This runs once, on the first frame,
+    /// because asking for it when the window is created gets overridden by the initial size.
+    fn apply_start_mode(&mut self, ctx: &egui::Context) {
+        if std::mem::replace(&mut self.start_applied, true) {
+            return;
+        }
+        match self.start_mode {
+            location::StartMode::Normal => {}
+            location::StartMode::Maximized => ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true)),
+            location::StartMode::Fullscreen => ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true)),
         }
     }
 
@@ -2681,6 +2697,7 @@ fn setup_style(ctx: &egui::Context) {
 impl eframe::App for DiaryApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.apply_start_mode(&ctx);
         let p = palette(&ctx);
         // Auto-lock after a period without any input.
         if self.lock.is_none() {
@@ -2763,15 +2780,12 @@ impl eframe::App for DiaryApp {
 
 fn main() -> eframe::Result {
     let icon = egui::IconData { rgba: icon::rgba(256), width: 256, height: 256 };
-    let mut viewport = egui::ViewportBuilder::default()
+    // The window always opens at its normal size; "maximised" and "full screen" are applied on the
+    // first frame (see `apply_start_mode`). Asking for them here is overridden by the initial size.
+    let viewport = egui::ViewportBuilder::default()
         .with_icon(std::sync::Arc::new(icon))
         .with_inner_size([1280.0, 760.0])
         .with_min_inner_size([1200.0, 600.0]);
-    match location::start_mode() {
-        location::StartMode::Normal => {}
-        location::StartMode::Maximized => viewport = viewport.with_maximized(true),
-        location::StartMode::Fullscreen => viewport = viewport.with_fullscreen(true),
-    }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native(
         "Diary",
@@ -3608,6 +3622,31 @@ mod tests {
         assert_eq!(f11(&ctx, &mut app, true), vec![false], "and back");
         app.lock = Some(Lock::new(LockMode::Create));
         assert_eq!(f11(&ctx, &mut app, false), vec![true], "it works on the lock screen too");
+    }
+
+    #[test]
+    fn the_start_mode_is_applied_once_on_the_first_frame() {
+        let commands = |app: &mut DiaryApp| -> Vec<egui::ViewportCommand> {
+            let ctx = egui::Context::default();
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.apply_start_mode(ui.ctx()));
+            out.textures_delta.clear();
+            out.viewport_output
+                .values()
+                .flat_map(|v| v.commands.clone())
+                .filter(|c| matches!(c, egui::ViewportCommand::Maximized(_) | egui::ViewportCommand::Fullscreen(_)))
+                .collect()
+        };
+        for (mode, expect) in [
+            (location::StartMode::Normal, None),
+            (location::StartMode::Maximized, Some(egui::ViewportCommand::Maximized(true))),
+            (location::StartMode::Fullscreen, Some(egui::ViewportCommand::Fullscreen(true))),
+        ] {
+            let mut app = app_with_entries();
+            app.start_mode = mode;
+            app.start_applied = false;
+            assert_eq!(commands(&mut app), expect.into_iter().collect::<Vec<_>>(), "{mode:?}: first frame");
+            assert!(commands(&mut app).is_empty(), "{mode:?}: later frames do nothing, so F11 and un-maximising still work");
+        }
     }
     #[test]
     fn all_calendar_views_render() {
