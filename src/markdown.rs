@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use eframe::egui::{self, Color32, FontFamily, Label, TextureHandle, TextureOptions};
-#[cfg(test)]
 use eframe::egui::{FontId, Stroke, text::{LayoutJob, TextFormat}};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
@@ -273,11 +272,12 @@ pub fn images(md: &str) -> Vec<(String, String)> {
 // Rendering
 // ---------------------------------------------------------------------------------------------
 
-#[cfg(test)]
 pub struct Style {
     pub text: Color32,
     pub link: Color32,
     pub size: f32,
+    /// Set the text in the serif face (Newsreader) with a roomier line height.
+    pub serif: bool,
 }
 
 /// Decoded images turned into textures, created on demand.
@@ -320,7 +320,6 @@ pub fn bold_family() -> FontFamily {
     crate::fonts::ui_bold()
 }
 
-#[cfg(test)]
 fn job_for(inlines: &[Inline], style: &Style, size: f32, force_bold: bool) -> LayoutJob {
     let mut job = LayoutJob::default();
     for inl in inlines {
@@ -331,16 +330,26 @@ fn job_for(inlines: &[Inline], style: &Style, size: f32, force_bold: bool) -> La
         };
         let family = if fmt.code {
             FontFamily::Monospace
+        } else if style.serif {
+            if fmt.bold || force_bold {
+                crate::fonts::serif_bold()
+            } else if fmt.italic {
+                crate::fonts::serif_italic()
+            } else {
+                crate::fonts::serif()
+            }
         } else if fmt.bold || force_bold {
             bold_family()
         } else {
             FontFamily::Proportional
         };
+        let real_italic = style.serif && fmt.italic && !fmt.code && !(fmt.bold || force_bold);
         let color = if fmt.link { style.link } else { style.text };
         let fmt_out = TextFormat {
             font_id: FontId::new(if fmt.code { size * 0.92 } else { size }, family),
             color,
-            italics: fmt.italic,
+            italics: fmt.italic && !real_italic,
+            line_height: style.serif.then(|| size * 1.55),
             strikethrough: if fmt.strike { Stroke::new(1.0, color) } else { Stroke::NONE },
             underline: if fmt.link { Stroke::new(1.0, color) } else { Stroke::NONE },
             background: if fmt.code { style.text.gamma_multiply(0.13) } else { Color32::TRANSPARENT },
@@ -351,7 +360,6 @@ fn job_for(inlines: &[Inline], style: &Style, size: f32, force_bold: bool) -> La
     job
 }
 
-#[cfg(test)]
 fn render_inlines(
     ui: &mut egui::Ui,
     inlines: &[Inline],
@@ -381,7 +389,6 @@ fn render_inlines(
     flush(ui, &mut run);
 }
 
-#[cfg(test)]
 fn render_blocks(
     ui: &mut egui::Ui,
     blocks: &[Block],
@@ -435,7 +442,6 @@ fn render_blocks(
 }
 
 /// Draw `md` into `ui`.
-#[cfg(test)]
 pub fn render(ui: &mut egui::Ui, md: &str, style: &Style, media: &mut Media, images: &BTreeMap<String, String>) {
     // Treat every line break as a line break (plain-text entries keep their layout).
     let md = md.replace("\r\n", "\n").replace('\n', "  \n");

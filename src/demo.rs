@@ -55,6 +55,12 @@ pub(crate) fn data() -> Data {
             ..Default::default()
         });
     }
+    add_picture(&mut data);
+    for id in [1, 3, 8] {
+        if let Some(e) = data.entries.iter_mut().find(|e| e.id == id) {
+            e.pinned = true;
+        }
+    }
     data.settings.privacy_screen = false;
     data.settings.auto_lock_minutes = 0;
     data
@@ -76,5 +82,25 @@ pub(crate) fn fill_editor(app: &mut DiaryApp) {
         ed.text = "Walked along the **shore** at dusk. The tide had left a fine line of shells, and the light was low and *gold*.\n\n## What I noticed\n\n- gulls working the edge of the water\n- the smell of salt and wet stone\n- one small boat, going home\n\n> Every day leaves a mark.\n\nI want to remember how still it was.".into();
         ed.mood = Some(4);
         ed.pinned = true;
+    }
+}
+
+/// A made-up picture (a soft gradient) stored the way real pictures are.
+fn demo_picture() -> String {
+    use base64::Engine;
+    let img = image::RgbaImage::from_fn(480, 280, |x, y| {
+        let t = x as f32 / 480.0;
+        let u = y as f32 / 280.0;
+        image::Rgba([(60.0 + 120.0 * t) as u8, (110.0 + 60.0 * u) as u8, (150.0 + 70.0 * (1.0 - t)) as u8, 255])
+    });
+    let mut bytes = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).ok();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+pub(crate) fn add_picture(data: &mut Data) {
+    data.images.insert("demo1".into(), demo_picture());
+    if let Some(e) = data.entries.iter_mut().find(|e| e.id == 7) {
+        e.text.push_str("\n\n![Pink light over the water](img:demo1)\n\nThe photo is from the same evening.");
     }
 }

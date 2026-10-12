@@ -20,6 +20,7 @@ pub enum Icon {
     ChevronLeft,
     ChevronRight,
     ChevronDown,
+    ChevronUp,
     Minimize,
     Maximize,
     Restore,
@@ -133,6 +134,7 @@ pub fn paint(painter: &egui::Painter, center: Pos2, size: f32, color: Color32, i
         Icon::ChevronLeft => line(&[(14.5, 6.0), (8.5, 12.0), (14.5, 18.0)]),
         Icon::ChevronRight => line(&[(9.5, 6.0), (15.5, 12.0), (9.5, 18.0)]),
         Icon::ChevronDown => line(&[(6.0, 9.5), (12.0, 15.5), (18.0, 9.5)]),
+        Icon::ChevronUp => line(&[(6.0, 14.5), (12.0, 8.5), (18.0, 14.5)]),
         Icon::Minimize => line(&[(6.0, 12.0), (18.0, 12.0)]),
         Icon::Maximize => rect(6.0, 6.0, 18.0, 18.0, 1.5),
         Icon::Restore => {
@@ -242,6 +244,15 @@ pub fn small_button(ui: &mut Ui, look: Look, icon: Option<Icon>, label: &str) ->
 
 /// The general form: `height` is the button's height in points.
 pub fn button_h(ui: &mut Ui, look: Look, icon: Option<Icon>, label: &str, width: Option<f32>, height: f32) -> Response {
+    button_impl(ui, look, icon, false, label, width, height)
+}
+
+/// A small button with the icon after the label (for "Open day ›").
+pub fn small_button_after(ui: &mut Ui, look: Look, label: &str, icon: Icon) -> Response {
+    button_impl(ui, look, Some(icon), true, label, None, 30.0)
+}
+
+fn button_impl(ui: &mut Ui, look: Look, icon: Option<Icon>, icon_after: bool, label: &str, width: Option<f32>, height: f32) -> Response {
     let shades = theme::shades();
     let font = ui_font(if height < 32.0 { 13.0 } else { 14.0 });
     let icon_w = if icon.is_some() { 18.0 + if label.is_empty() { 0.0 } else { 8.0 } } else { 0.0 };
@@ -258,12 +269,15 @@ pub fn button_h(ui: &mut Ui, look: Look, icon: Option<Icon>, label: &str, width:
     painter.rect(rect, 8.0, fill, stroke, StrokeKind::Inside);
     let content_w = icon_w + text_w;
     let mut x = rect.center().x - content_w / 2.0;
-    if let Some(icon) = icon {
+    if let Some(icon) = icon.filter(|_| !icon_after) {
         paint(painter, Pos2::new(x + 9.0, rect.center().y), if height < 32.0 { 16.0 } else { 18.0 }, fg, icon, false);
         x += icon_w;
     }
     if !label.is_empty() {
         painter.text(Pos2::new(x, rect.center().y), Align2::LEFT_CENTER, label, font, fg);
+        if let Some(icon) = icon.filter(|_| icon_after) {
+            paint(painter, Pos2::new(x + text_w + 15.0, rect.center().y), 15.0, fg, icon, false);
+        }
     }
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -566,5 +580,17 @@ pub fn checkbox(ui: &mut Ui, checked: &mut bool, label: &str) -> Response {
         ui.painter().rect(boxr, 4.0, Color32::TRANSPARENT, Stroke::new(1.3, if resp.hovered() { theme::TEXT_2 } else { theme::TEXT_3 }), StrokeKind::Inside);
     }
     ui.painter().text(Pos2::new(rect.min.x + 25.0, rect.center().y), Align2::LEFT_CENTER, label, font, theme::TEXT_2);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// A quiet text link in the accent colour with a small chevron after it (for "Show more").
+pub fn text_link(ui: &mut Ui, label: &str, icon: Icon) -> Response {
+    let font = FontId::new(13.5, crate::fonts::ui_bold());
+    let w = text_width(ui, label, font.clone()) + 24.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
+    let col = if resp.hovered() { theme::shades().accent_hover } else { theme::shades().accent };
+    ui.painter().text(Pos2::new(rect.min.x, rect.center().y), Align2::LEFT_CENTER, label, font.clone(), col);
+    let tw = text_width(ui, label, font);
+    paint(ui.painter(), Pos2::new(rect.min.x + tw + 12.0, rect.center().y), 14.0, col, icon, false);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

@@ -381,6 +381,11 @@ struct DiaryApp {
     /// Private entries the user has clicked open (forgotten on lock).
     revealed: std::collections::HashSet<u64>,
     show_pinned: bool,
+    /// Entry cards in the day panel that are showing the whole entry.
+    expanded: std::collections::HashSet<u64>,
+    /// The Pinned page: the category filter (None = all) and the sort order (index into `pinned::SORTS`).
+    pinned_category: Option<String>,
+    pinned_sort: usize,
     view: CalView,
     /// Bumped whenever the diary changes; invalidates `stats_cache`.
     rev: u64,
@@ -410,6 +415,10 @@ impl DiaryApp {
             app.selected = NaiveDate::from_ymd_opt(2026, 10, 8).unwrap();
             app.month = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
             app.insights.open = demo::wants("insights");
+            app.show_pinned = demo::wants("pinned") || demo::wants("pinned-expanded");
+            if demo::wants("expanded") || demo::wants("pinned-expanded") {
+                app.expanded.insert(7);
+            }
             if demo::wants_editor() {
                 demo::fill_editor(&mut app);
             }
@@ -474,6 +483,9 @@ clear_open_files(); // leftovers from opening attachments last time
             lightbox: None,
             revealed: std::collections::HashSet::new(),
             show_pinned: false,
+            expanded: std::collections::HashSet::new(),
+            pinned_category: None,
+            pinned_sort: 0,
             view: CalView::Month,
             rev: 0,
             stats_cache: None,
@@ -593,6 +605,7 @@ clear_open_files(); // leftovers from opening attachments last time
         self.show_location = false;
         self.show_export = false;
         self.show_pinned = false;
+        self.expanded.clear();
         self.show_recovery = false;
         self.recovery_shown = None;
         self.show_trash = false;
@@ -1202,7 +1215,7 @@ clear_open_files(); // leftovers from opening attachments last time
             .show(ctx, |ui| {
                 close |= popup_header(ui, &p, "Keyboard shortcuts");
                 egui::Frame::new().inner_margin(14).show(ui, |ui| {
-                    let rows: [(&str, &str); 17] = [
+                    let rows: [(&str, &str); 18] = [
                         ("Ctrl+N", "New entry on the selected day"),
                         ("Ctrl+F", "Search entries"),
                         ("Ctrl+T", "Jump to today"),
@@ -1217,6 +1230,7 @@ clear_open_files(); // leftovers from opening attachments last time
                         ("Drag", "Move an entry to another day or hour"),
                         ("Esc", "Cancel a drag"),
                         ("Ctrl+S", "Save the entry (while writing)"),
+                        ("Ctrl+D", "Pin or unpin the entry (while writing)"),
                         ("Ctrl+Enter", "Save the entry (while writing)"),
                         ("Ctrl+B / Ctrl+I", "Bold / italic (while writing)"),
                         ("Click again", "A mood button or toolbar format removes it"),
@@ -1471,13 +1485,15 @@ clear_open_files(); // leftovers from opening attachments last time
         ui.add_space(14.0);
         ui.spacing_mut().item_spacing.y = 6.0;
 
-        let calendar_on = self.view != CalView::Photos && !self.search_state.showing(&self.search) && !self.insights.open;
+        let calendar_on = self.view != CalView::Photos && !self.search_state.showing(&self.search) && !self.insights.open && !self.show_pinned;
         if kit::nav_item(ui, Some(kit::Icon::Sun), None, "Today", None, false).on_hover_text("Jump to today (Ctrl+T)").clicked() {
             self.go_today();
             self.insights.open = false;
+            self.show_pinned = false;
         }
         if kit::nav_item(ui, Some(kit::Icon::Calendar), None, "Calendar", None, calendar_on).clicked() {
             self.insights.open = false;
+            self.show_pinned = false;
             if self.view == CalView::Photos {
                 self.view = CalView::Month;
             }
@@ -1490,56 +1506,63 @@ clear_open_files(); // leftovers from opening attachments last time
             self.search_state.reset();
             self.search_state.open = true;
             self.insights.open = false;
+            self.show_pinned = false;
         }
         let pinned = self.data.entries.iter().filter(|e| e.pinned).count();
         if kit::nav_item(ui, Some(kit::Icon::Star), None, "Pinned", (pinned > 0).then(|| pinned.to_string()), self.show_pinned).clicked() {
             self.show_pinned = !self.show_pinned;
+            self.insights.open = false;
         }
-        if kit::nav_item(ui, Some(kit::Icon::Image), None, "Photos", None, self.view == CalView::Photos && !self.insights.open).clicked() {
+        if kit::nav_item(ui, Some(kit::Icon::Image), None, "Photos", None, self.view == CalView::Photos && !self.insights.open && !self.show_pinned).clicked() {
             self.view = CalView::Photos;
             self.insights.open = false;
+            self.show_pinned = false;
             self.search.clear();
             self.search_state.reset();
         }
         if kit::nav_item(ui, Some(kit::Icon::Chart), None, "Insights", None, self.insights.open).on_hover_text("Mood patterns, writing statistics and reviews").clicked() {
             self.insights.open = !self.insights.open;
+            self.show_pinned = false;
         }
 
-        ui.add_space(22.0);
-        ui.horizontal(|ui| {
-            ui.add_space(6.0);
-            kit::section_label(ui, "Categories");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // The category list needs room; on a short window it is left out.
+        if ui.available_height() > 330.0 {
+            ui.add_space(22.0);
+            ui.horizontal(|ui| {
                 ui.add_space(6.0);
-                if ui
-                    .add(egui::Label::new(RichText::new("Edit").size(12.5).color(p.faint)).sense(Sense::click()))
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text("Rename categories and change their colours")
-                    .clicked()
-                {
-                    self.show_categories = true;
+                kit::section_label(ui, "Categories");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(6.0);
+                    if ui
+                        .add(egui::Label::new(RichText::new("Edit").size(12.5).color(p.faint)).sense(Sense::click()))
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .on_hover_text("Rename categories and change their colours")
+                        .clicked()
+                    {
+                        self.show_categories = true;
+                    }
+                });
+            });
+            ui.add_space(2.0);
+            let counts: Vec<(String, Color32, usize)> = self
+                .data
+                .categories
+                .iter()
+                .map(|c| (c.name.clone(), rgb(c.color), self.data.entries.iter().filter(|e| e.category == c.name).count()))
+                .collect();
+            egui::ScrollArea::vertical().id_salt("side_categories").max_height((ui.available_height() - 150.0).max(40.0)).show(ui, |ui| {
+                for (name, col, n) in counts {
+                    let on = self.search_state.filters.category == name && self.search_state.showing(&self.search);
+                    if kit::nav_item(ui, None, Some(col), &name, Some(n.to_string()), on).on_hover_text("Show this category's entries").clicked() {
+                        self.search.clear();
+                        self.search_state.reset();
+                        self.search_state.filters.category = name;
+                        self.insights.open = false;
+                        self.show_pinned = false;
+                    }
                 }
             });
-        });
-        ui.add_space(2.0);
-        let counts: Vec<(String, Color32, usize)> = self
-            .data
-            .categories
-            .iter()
-            .map(|c| (c.name.clone(), rgb(c.color), self.data.entries.iter().filter(|e| e.category == c.name).count()))
-            .collect();
-        egui::ScrollArea::vertical().id_salt("side_categories").max_height((ui.available_height() - 110.0).max(60.0)).show(ui, |ui| {
-            for (name, col, n) in counts {
-                let on = self.search_state.filters.category == name && self.search_state.showing(&self.search);
-                if kit::nav_item(ui, None, Some(col), &name, Some(n.to_string()), on).on_hover_text("Show this category's entries").clicked() {
-                    self.search.clear();
-                    self.search_state.reset();
-                    self.search_state.filters.category = name;
-                    self.insights.open = false;
-                }
-            }
-        });
-
+        }
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             let settings = kit::nav_item(ui, Some(kit::Icon::Sliders), None, "Settings", None, false);
@@ -2155,6 +2178,7 @@ clear_open_files(); // leftovers from opening attachments last time
         let mut delete = None;
         let mut jump = None;
         let mut toggle_pin = None;
+        let mut toggle_more: Option<u64> = None;
         let mut reveal = None;
         let mut hide = None;
         let mut save_attachment: Option<Attachment> = None;
@@ -2210,8 +2234,15 @@ clear_open_files(); // leftovers from opening attachments last time
                         if let Some(title) = title {
                             ui.label(RichText::new(title).font(FontId::new(22.0, fonts::serif_medium())).color(p.title));
                         }
+                        let is_open = self.expanded.contains(&e.id);
+                        let has_picture = !markdown::image_ids(&body).is_empty();
                         let preview = markdown::plain_text(&body);
-                        if !preview.is_empty() {
+                        let longer = has_picture || preview.chars().count() > 150 || body.trim().contains('\n');
+                        if is_open {
+                            // The whole entry, pictures and all.
+                            let style = markdown::Style { text: p.ink, link: p.accent, size: 16.0, serif: true };
+                            markdown::render(ui, &body, &style, &mut self.media, &self.data.images);
+                        } else if !preview.is_empty() {
                             let mut job = egui::text::LayoutJob::default();
                             job.wrap.max_width = ui.available_width();
                             job.wrap.max_rows = 5;
@@ -2222,6 +2253,9 @@ clear_open_files(); // leftovers from opening attachments last time
                                 egui::text::TextFormat { font_id: FontId::new(16.0, fonts::serif()), color: p.muted, line_height: Some(16.0 * 1.6), ..Default::default() },
                             );
                             ui.label(job);
+                        }
+                        if longer && kit::text_link(ui, if is_open { "Show less" } else if has_picture { "Show more, with picture" } else { "Show more" }, if is_open { kit::Icon::ChevronUp } else { kit::Icon::ChevronDown }).clicked() {
+                            toggle_more = Some(e.id);
                         }
                         for a in &e.attachments {
                             ui.horizontal(|ui| {
@@ -2309,6 +2343,11 @@ clear_open_files(); // leftovers from opening attachments last time
         }
         if let Some(id) = undo {
             self.restore_trashed(id);
+        }
+        if let Some(id) = toggle_more {
+            if !self.expanded.remove(&id) {
+                self.expanded.insert(id);
+            }
         }
         if let Some(id) = toggle_pin {
             if let Some(e) = self.data.entries.iter_mut().find(|e| e.id == id) {
@@ -2634,8 +2673,13 @@ impl eframe::App for DiaryApp {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().fill(p.page_bg).inner_margin(egui::Margin::symmetric(32, 26)))
                     .show(ui, |ui| self.insights_page(ui));
+            } else if self.show_pinned && !self.search_state.showing(&self.search) {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(p.page_bg).inner_margin(egui::Margin::symmetric(32, 26)))
+                    .show(ui, |ui| self.pinned_page(ui));
             } else {
                 self.insights.open = false;
+                self.show_pinned = false;
                 egui::Panel::right("day")
                     .default_size(340.0)
                     .size_range(300.0..=460.0)
@@ -2658,7 +2702,7 @@ impl eframe::App for DiaryApp {
         self.trash_window(&ctx);
         self.backups_window(&ctx);
         self.lightbox_window(&ctx);
-        self.pinned_window(&ctx);
+
         self.export_window(&ctx);
     }
 }
@@ -2842,7 +2886,7 @@ mod tests {
         // The second frame is the first one that uses the fonts set up by `setup_style`.
         for _ in 0..3 {
             let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-                let style = markdown::Style { text: Color32::BLACK, link: Color32::BLUE, size: 16.0 };
+                let style = markdown::Style { text: Color32::BLACK, link: Color32::BLUE, size: 16.0, serif: false };
                 markdown::render(ui, &md, &style, &mut media, &data.images);
             });
             out.textures_delta.clear();
@@ -3240,7 +3284,7 @@ mod tests {
             let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
                 app.day_panel(ui);
                 app.lightbox_window(ui.ctx());
-                app.pinned_window(ui.ctx());
+                app.pinned_page(ui);
             });
             out.textures_delta.clear();
         }
@@ -3685,6 +3729,111 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn the_pinned_page_filters_sorts_unpins_and_opens_days() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        app.data.entries[0].pinned = true; // Work, 2026-10-09
+        app.data.entries[3].pinned = true; // Work, 2026-10-12
+        app.data.entries[1].pinned = true;
+        app.data.entries[1].category = "Health".into();
+        app.data.entries.push(Entry { id: 20, date: "2026-10-10".into(), added_at: "2026-10-10 08:00:00".into(), category: "Ideas".into(), text: "Secret".into(), sensitive: true, pinned: true, ..Default::default() });
+        app.show_pinned = true;
+        let show = |app: &mut DiaryApp| {
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| app.pinned_page(ui));
+                });
+                out.textures_delta.clear();
+            }
+        };
+        for sort in 0..pinned::SORTS.len() {
+            app.pinned_sort = sort;
+            show(&mut app);
+        }
+        app.pinned_category = Some("Work".into());
+        show(&mut app);
+        // A filter for a category that no longer has pins goes back to All.
+        app.pinned_category = Some("Personal".into());
+        show(&mut app);
+        assert_eq!(app.pinned_category, None);
+        // Cards can open to show everything, pictures included, and fold again.
+        app.data.images.insert("pic".into(), {
+            use base64::Engine;
+            let img = image::RgbaImage::from_pixel(6, 6, image::Rgba([10, 120, 200, 255]));
+            let mut bytes = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        });
+        app.data.entries[0].text = "# Pinned with a picture
+
+Some words.
+
+![blue](img:pic)
+
+More words.".into();
+        app.pinned_category = None;
+        for open in [true, false] {
+            if open {
+                app.expanded.insert(app.data.entries[0].id);
+            } else {
+                app.expanded.clear();
+            }
+            show(&mut app);
+        }
+        // Private pinned entries render without their text (covered by `hidden`) and stay pinned.
+        assert!(app.data.entries.iter().any(|e| e.id == 20 && e.pinned));
+    }
+
+    #[test]
+    fn ctrl_d_pins_the_entry_being_written() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        app.new_entry(d(2026, 10, 9));
+        assert!(!app.editor.as_ref().unwrap().pinned);
+        for _ in 0..2 {
+            let mut input = egui::RawInput::default();
+            input.events.push(egui::Event::Key { key: egui::Key::D, physical_key: Some(egui::Key::D), pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
+            let mut out = ctx.run_ui(input, |ui| app.entry_view(ui));
+            out.textures_delta.clear();
+            break;
+        }
+        assert!(app.editor.as_ref().unwrap().pinned, "Ctrl+D pins");
+    }
+
+    #[test]
+    fn day_cards_can_show_the_whole_entry_including_pictures() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        let png = {
+            use base64::Engine;
+            let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([200, 50, 120, 255]));
+            let mut bytes = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        };
+        app.data.images.insert("pic1".into(), png);
+        app.data.entries[1].text = "# With a picture\n\nLine one.\n\n![A pink square](img:pic1)\n\n- a list\n- of things".into();
+        let id = app.data.entries[1].id;
+        for open in [false, true, false] {
+            if open {
+                app.expanded.insert(id);
+            } else {
+                app.expanded.remove(&id);
+            }
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.day_panel(ui));
+                out.textures_delta.clear();
+            }
+        }
+        app.expanded.insert(id);
+        app.lock_now();
+        assert!(app.expanded.is_empty(), "locking forgets which cards were open");
+    }
     #[test]
     fn choosing_a_colour_theme_recolours_the_app_and_is_remembered() {
         let _turn = location::CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());

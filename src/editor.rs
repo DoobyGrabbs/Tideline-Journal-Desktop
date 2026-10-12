@@ -61,6 +61,9 @@ impl DiaryApp {
         }
 
         // Keyboard shortcuts for the common formats.
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::D)) {
+            ed.pinned = !ed.pinned;
+        }
         let shortcuts = [(egui::Key::B, markdown::Format::Bold), (egui::Key::I, markdown::Format::Italic)];
         for (key, format) in shortcuts {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key)) {
