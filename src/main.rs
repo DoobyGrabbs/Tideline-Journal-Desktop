@@ -7,9 +7,12 @@ use serde::{Deserialize, Serialize};
 use location::data_path;
 
 mod icon;
+mod kit;
 mod ai;
 mod export;
-mod faces;
+mod demo;
+mod editor;
+mod fonts;
 mod gallery;
 mod live;
 mod insights;
@@ -27,77 +30,55 @@ mod theme;
 mod trash;
 mod vault;
 
-/// The theme's button colour (white text goes on top of it).
-fn blue() -> Color32 {
-    theme::shades().button
+/// The accent colour for fills (white-ish text goes on top of it, see `theme::Shades::on_accent`).
+fn accent_fill() -> Color32 {
+    theme::shades().accent
 }
 
-
-fn blue_hover() -> Color32 {
-    theme::shades().button_hover
-}
-
-const RED: Color32 = Color32::from_rgb(220, 38, 38);
+const RED: Color32 = theme::DANGER;
 const GREY: [u8; 3] = [156, 163, 175];
 
-/// Colours that differ between light and dark mode.
+/// The colours the windows draw with. Tideline Journal is a dark design, so there is one set.
 struct Palette {
     page_bg: Color32,
     panel_bg: Color32,
-    header: Color32,
     accent: Color32,
     cell: Color32,
+    surface: Color32,
     cell_border: Color32,
-    weekend: Color32,
+    border_soft: Color32,
     today: Color32,
     hover: Color32,
     head_bg: Color32,
     head_text: Color32,
     day_num: Color32,
+    /// Secondary text.
     muted: Color32,
+    /// Labels and counts.
+    faint: Color32,
     title: Color32,
     ink: Color32,
 }
 
-fn palette(ctx: &egui::Context) -> Palette {
-    let c = |r, g, b| Color32::from_rgb(r, g, b);
+fn palette(_ctx: &egui::Context) -> Palette {
     let t = theme::shades();
-    if ctx.theme() == egui::Theme::Dark {
-        Palette {
-            page_bg: t.dark_page,
-            panel_bg: t.dark_panel,
-            header: t.dark_header,
-            accent: t.dark_accent,
-            cell: t.dark_panel,
-            cell_border: c(71, 85, 105),
-            weekend: t.dark_weekend,
-            today: c(20, 83, 45),
-            hover: c(66, 56, 20),
-            head_bg: t.dark_header,
-            head_text: t.dark_tint_text,
-            day_num: c(226, 232, 240),
-            muted: c(148, 163, 184),
-            title: t.dark_title,
-            ink: c(241, 245, 249),
-        }
-    } else {
-        Palette {
-            page_bg: t.light_page,
-            panel_bg: Color32::WHITE,
-            header: t.button,
-            accent: t.button,
-            cell: Color32::WHITE,
-            cell_border: c(203, 213, 225),
-            weekend: t.light_weekend,
-            today: c(220, 252, 231),
-            hover: c(254, 249, 195),
-            head_bg: t.light_tint,
-            head_text: t.light_tint_text,
-            day_num: c(51, 65, 85),
-            muted: c(71, 85, 105),
-            title: t.light_tint_text,
-            ink: c(30, 41, 59),
-        }
+    Palette {
+        page_bg: theme::BG,
+        panel_bg: theme::PANEL,
+        accent: t.accent,
+        cell: theme::CELL,
+        surface: theme::SURFACE,
+        cell_border: theme::BORDER,
+        border_soft: theme::BORDER_SOFT,
+        today: theme::TODAY,
+        hover: theme::SURFACE,
+        head_bg: theme::SURFACE,
+        head_text: theme::TEXT_2,
+        day_num: theme::TEXT,
+        muted: theme::TEXT_2,
+        faint: theme::TEXT_3,
+        title: theme::TEXT,
+        ink: theme::TEXT,
     }
 }
 
@@ -186,16 +167,7 @@ impl Default for Settings {
 }
 
 fn default_categories() -> Vec<Category> {
-    [
-        ("Personal", [96, 165, 250]),
-        ("Work", [251, 191, 36]),
-        ("Health", [74, 222, 128]),
-        ("Ideas", [192, 132, 252]),
-        ("Important", [248, 113, 113]),
-    ]
-    .into_iter()
-    .map(|(n, c)| Category { name: n.into(), color: c })
-    .collect()
+    theme::CATEGORY_COLOURS.into_iter().map(|(n, c)| Category { name: n.into(), color: c }).collect()
 }
 
 
@@ -272,12 +244,6 @@ fn rgb(c: [u8; 3]) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
-/// Readable text colour for a given background.
-fn text_on(bg: Color32) -> Color32 {
-    let lum = 0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32;
-    if lum > 150.0 { Color32::from_rgb(30, 41, 59) } else { Color32::WHITE }
-}
-
 
 struct EditState {
     /// `Some` when editing an existing entry.
@@ -288,7 +254,13 @@ struct EditState {
     /// Seconds are kept from the original timestamp so entries stay in order.
     second: u32,
     category: String,
+    /// The title (a first-line heading in the saved text) and the rest of the entry.
+    title: String,
     text: String,
+    /// The entry as it was when opened, to tell whether anything changed.
+    baseline: String,
+    /// "Discard" was clicked once; the next click really discards.
+    discard_arm: bool,
     mood: Option<u8>,
     pinned: bool,
     sensitive: bool,
@@ -428,6 +400,23 @@ struct DiaryApp {
 
 impl DiaryApp {
     fn new() -> Self {
+        let mut app = Self::new_inner();
+        if demo::requested() {
+            // Look-around mode: unlocked, made-up entries, nothing real is read or written.
+            app.lock = None;
+            app.vault = vault::Vault::create("demo").ok();
+            app.data = demo::data();
+            app.recovery_hint_dismissed = true;
+            app.selected = NaiveDate::from_ymd_opt(2026, 10, 8).unwrap();
+            app.month = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+            if demo::wants_editor() {
+                demo::fill_editor(&mut app);
+            }
+        }
+        app
+    }
+
+    fn new_inner() -> Self {
 clear_open_files(); // leftovers from opening attachments last time
         let today = Local::now().date_naive();
         let mode = current_lock_mode();
@@ -619,7 +608,7 @@ clear_open_files(); // leftovers from opening attachments last time
         let Some(lock) = self.lock.as_mut() else { return };
         let (title, blurb, button) = match &lock.mode {
             LockMode::Create => (
-                "Welcome to My Diary",
+                "Welcome to Tideline Journal",
                 "Choose a password to protect your diary. You can also make a recovery key in case you forget it.".to_string(),
                 "Create password",
             ),
@@ -629,7 +618,7 @@ clear_open_files(); // leftovers from opening attachments last time
                     .to_string(),
                 "Encrypt diary",
             ),
-            LockMode::Unlock(_) => ("My Diary is locked", "Enter your password to open it.".to_string(), "Unlock"),
+            LockMode::Unlock(_) => ("Tideline Journal is locked", "Enter your password to open it.".to_string(), "Unlock"),
             LockMode::Recover(env) if env.has_recovery() => (
                 "Recover your diary",
                 "Enter the recovery key you saved, then choose a new password.".to_string(),
@@ -655,17 +644,25 @@ clear_open_files(); // leftovers from opening attachments last time
         let (mut submit, mut forgot, mut back, mut other) = (false, false, false, false);
 
         ui.vertical_centered(|ui| {
-            ui.add_space(((ui.available_height() - 420.0) / 2.0).max(16.0));
+            ui.add_space(((ui.available_height() - 520.0) / 2.0).max(16.0));
             egui::Frame::new()
                 .fill(p.panel_bg)
                 .stroke(Stroke::new(1.0, p.cell_border))
                 .shadow(popup_shadow(dark))
-                .inner_margin(28)
+                .corner_radius(14)
+                .inner_margin(34)
                 .show(ui, |ui| {
                     ui.set_width(400.0);
-                    ui.label(RichText::new(title).size(28.0).strong().color(p.title));
+                    let (logo, _) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::hover());
+                    let tile = egui::Rect::from_center_size(logo.center(), vec2(60.0, 60.0));
+                    ui.painter().rect_filled(tile, 16.0, Color32::from_rgb(0x15, 0x30, 0x2D));
+                    kit::paint_logo(ui.painter(), tile.center(), 44.0, p.accent);
+                    ui.add_space(10.0);
+                    ui.label(RichText::new(title).font(FontId::new(32.0, fonts::serif_medium())).color(p.title));
+                    ui.label(RichText::new("Every day leaves a mark.").font(FontId::new(16.0, fonts::serif_italic())).color(p.faint));
+                    ui.add_space(4.0);
                     ui.add_space(6.0);
-                    ui.label(RichText::new(blurb).color(p.muted));
+                    ui.label(RichText::new(blurb).size(14.0).color(p.muted));
                     ui.add_space(14.0);
 
                     if !no_fields {
@@ -697,14 +694,14 @@ clear_open_files(); // leftovers from opening attachments last time
                             submit |= pressed_enter(&r2, ui);
                         }
                         ui.add_space(14.0);
-                        let btn = egui::Button::new(RichText::new(button).size(17.0)).min_size(vec2(ui.available_width(), 40.0));
-                        if ui.add(btn).clicked() {
+                        let width = ui.available_width();
+                        if kit::button_h(ui, kit::Look::Primary, None, button, Some(width), 44.0).clicked() {
                             submit = true;
                         }
                     }
                     if !lock.error.is_empty() {
                         ui.add_space(8.0);
-                        ui.label(RichText::new(&lock.error).color(Color32::from_rgb(239, 68, 68)));
+                        ui.label(RichText::new(&lock.error).color(RED));
                     }
                     if can_switch {
                         ui.add_space(12.0);
@@ -895,7 +892,10 @@ clear_open_files(); // leftovers from opening attachments last time
             minute,
             second,
             category,
+            title: String::new(),
             text: String::new(),
+            baseline: String::new(),
+            discard_arm: false,
             mood: None,
             pinned: false,
             sensitive: false,
@@ -910,6 +910,9 @@ clear_open_files(); // leftovers from opening attachments last time
         let default = self.data.settings.default_template.clone();
         if !default.is_empty() {
             self.apply_template(&default);
+        }
+        if let Some(ed) = self.editor.as_mut() {
+            ed.baseline = ed.full_text();
         }
     }
 
@@ -1151,7 +1154,7 @@ clear_open_files(); // leftovers from opening attachments last time
             let dest = rfd::FileDialog::new().set_file_name(name).add_filter("PDF document", &["pdf"]).save_file();
             if let Some(dest) = dest {
                 let report = export::Report {
-                    title: "My Diary".into(),
+                    title: "Tideline Journal".into(),
                     subtitle: format!(
                         "{what} · {} {} · created {}",
                         entries.len(),
@@ -1231,192 +1234,332 @@ clear_open_files(); // leftovers from opening attachments last time
         }
     }
 
-    fn header(&mut self, ui: &mut egui::Ui) {
-        let p = palette(ui.ctx());
-        ui.horizontal_centered(|ui| {
-            ui.label(RichText::new("My Diary").size(24.0).strong().color(Color32::WHITE));
-            ui.add_space(24.0);
-            ui.add_space(8.0);
-            ui.add(
-                egui::TextEdit::singleline(&mut self.search)
-                    .id(search_id())
-                    .hint_text("Search entries (Ctrl+F)")
-                    .text_color(p.ink)
-                    .margin(egui::Margin::symmetric(8, 5))
-                    .desired_width(190.0),
-            );
-            let filters_on = self.search_state.open || self.search_state.filters.is_active();
-            let label = RichText::new("Filters").color(Color32::WHITE);
-            let mut button = egui::Button::new(label);
-            if filters_on {
-                button = button.fill(theme::shades().selected_button).stroke(Stroke::new(2.0, p.accent));
+    /// The contents of the Settings menu. Returns true if a saved setting changed.
+    fn settings_menu(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut settings_changed = false;
+        ui.set_min_width(300.0);
+        let muted = palette(ui.ctx()).muted;
+        // A small heading above each group of settings.
+        let heading = |ui: &mut egui::Ui, title: &str| {
+            ui.add_space(2.0);
+            ui.label(RichText::new(title).small().strong().color(muted));
+        };
+
+        heading(ui, "SECURITY");
+        if ui.button("Change password…").clicked() {
+            self.show_password = true;
+            ui.close();
+        }
+        if ui.button("Recovery key…").on_hover_text("A code that can open the diary if you forget your password").clicked() {
+            self.show_recovery = true;
+            ui.close();
+        }
+        ui.menu_button("Auto-lock", |ui| {
+            for (label, mins) in [("Off", 0), ("After 1 minute", 1), ("After 5 minutes", 5), ("After 10 minutes", 10), ("After 30 minutes", 30)] {
+                settings_changed |= ui.radio_value(&mut self.data.settings.auto_lock_minutes, mins, label).changed();
             }
-            if ui.add(button).on_hover_text("Search by category, mood, dates and more").clicked() {
-                self.search_state.open = !self.search_state.open;
+        });
+        settings_changed |= ui
+            .checkbox(&mut self.data.settings.privacy_screen, "Hide the diary when the window is in the background")
+            .changed();
+
+        ui.separator();
+        heading(ui, "WRITING");
+        if ui.button("Templates…").on_hover_text("Ready-made starting points for an entry").clicked() {
+            self.templates.open = true;
+            ui.close();
+        }
+        settings_changed |= ui.checkbox(&mut self.data.settings.show_prompts, "Show writing prompts").changed();
+        ui.menu_button("Daily word goal", |ui| {
+            for (label, words) in [("Off", 0), ("100 words", 100), ("250 words", 250), ("500 words", 500), ("750 words", 750), ("1,000 words", 1000)] {
+                settings_changed |= ui.radio_value(&mut self.data.settings.daily_word_goal, words, label).changed();
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Settings cog: the last item in the header.
-                let (rect, cog) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::click());
-                let cog = cog.on_hover_text("Settings");
-                ui.painter().rect_filled(rect, 8.0, if cog.hovered() || cog.is_pointer_button_down_on() { blue_hover() } else { blue() });
-                paint_cog(ui.painter(), rect.center(), 11.0, Color32::WHITE, if cog.hovered() { blue_hover() } else { blue() });
-                let mut settings_changed = false;
-                egui::Popup::menu(&cog).show(|ui| {
-                    ui.set_min_width(300.0);
-                    let muted = palette(ui.ctx()).muted;
-                    // A small heading above each group of settings.
-                    let heading = |ui: &mut egui::Ui, title: &str| {
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(title).small().strong().color(muted));
-                    };
+        });
+        if ui.button("AI helpers…").on_hover_text("Draft from notes, summarise a day, reflection questions (run on this PC with Ollama)").clicked() {
+            self.ai.setup_open = true;
+            ui.close();
+        }
 
-                    heading(ui, "SECURITY");
-                    if ui.button("Change password…").clicked() {
-                        self.show_password = true;
-                        ui.close();
-                    }
-                    if ui.button("Recovery key…").on_hover_text("A code that can open the diary if you forget your password").clicked() {
-                        self.show_recovery = true;
-                        ui.close();
-                    }
-                    ui.menu_button("Auto-lock", |ui| {
-                        for (label, mins) in [("Off", 0), ("After 1 minute", 1), ("After 5 minutes", 5), ("After 10 minutes", 10), ("After 30 minutes", 30)] {
-                            settings_changed |= ui.radio_value(&mut self.data.settings.auto_lock_minutes, mins, label).changed();
-                        }
-                    });
-                    settings_changed |= ui
-                        .checkbox(&mut self.data.settings.privacy_screen, "Hide the diary when the window is in the background")
-                        .changed();
+        ui.separator();
+        heading(ui, "YOUR DATA");
+        if ui.button("Export to PDF…").clicked() {
+            self.show_export = true;
+            ui.close();
+        }
+        if ui.button("Back up encrypted copy…").clicked() {
+            self.backup();
+            ui.close();
+        }
+        if ui.button("Automatic backups…").on_hover_text("Daily encrypted copies, and restoring one").clicked() {
+            self.show_backups = true;
+            self.backups_dirty = true;
+            ui.close();
+        }
+        if ui.button("Data location…").clicked() {
+            self.show_location = true;
+            ui.close();
+        }
+        if ui.button(format!("Recently deleted ({})…", self.data.trash.len())).clicked() {
+            self.show_trash = true;
+            ui.close();
+        }
 
-                    ui.separator();
-                    heading(ui, "WRITING");
-                    if ui.button("Templates…").on_hover_text("Ready-made starting points for an entry").clicked() {
-                        self.templates.open = true;
-                        ui.close();
-                    }
-                    settings_changed |= ui.checkbox(&mut self.data.settings.show_prompts, "Show writing prompts").changed();
-                    ui.menu_button("Daily word goal", |ui| {
-                        for (label, words) in [("Off", 0), ("100 words", 100), ("250 words", 250), ("500 words", 500), ("750 words", 750), ("1,000 words", 1000)] {
-                            settings_changed |= ui.radio_value(&mut self.data.settings.daily_word_goal, words, label).changed();
-                        }
-                    });
-                    if ui.button("AI helpers…").on_hover_text("Draft from notes, summarise a day, reflection questions (run on this PC with Ollama)").clicked() {
-                        self.ai.setup_open = true;
-                        ui.close();
-                    }
-
-                    ui.separator();
-                    heading(ui, "YOUR DATA");
-                    if ui.button("Export to PDF…").clicked() {
-                        self.show_export = true;
-                        ui.close();
-                    }
-                    if ui.button("Back up encrypted copy…").clicked() {
-                        self.backup();
-                        ui.close();
-                    }
-                    if ui.button("Automatic backups…").on_hover_text("Daily encrypted copies, and restoring one").clicked() {
-                        self.show_backups = true;
-                        self.backups_dirty = true;
-                        ui.close();
-                    }
-                    if ui.button("Data location…").clicked() {
-                        self.show_location = true;
-                        ui.close();
-                    }
-                    if ui.button(format!("Recently deleted ({})…", self.data.trash.len())).clicked() {
-                        self.show_trash = true;
-                        ui.close();
-                    }
-
-                    ui.separator();
-                    heading(ui, "DISPLAY");
-                    ui.menu_button("Colour theme", |ui| {
-                        let current = theme::accent();
-                        let mut chosen = None;
-                        for (name, colour) in theme::PRESETS {
-                            ui.horizontal(|ui| {
-                                let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                                let shade = theme::derive(colour).button;
-                                ui.painter().rect_filled(rect, 4.0, shade);
-                                if ui.radio(current == colour, name).clicked() {
-                                    chosen = Some(colour);
-                                }
-                            });
-                        }
-                        ui.separator();
-                        ui.horizontal(|ui| {
-                            let mut custom = current;
-                            if ui.color_edit_button_srgb(&mut custom).changed() {
-                                chosen = Some(custom);
-                            }
-                            let label = if theme::preset_name(current).is_none() { "Custom colour (in use)" } else { "Pick your own colour" };
-                            ui.label(label);
-                        });
-                        ui.label(RichText::new("Shades are worked out from your colour,\nand adjusted so text stays easy to read.").small());
-                        if let Some(colour) = chosen {
-                            self.set_colour_theme(ui.ctx(), colour);
-                        }
-                    });
-                    ui.menu_button("Window on startup", |ui| {
-                        for (mode, label) in [
-                            (location::StartMode::Normal, "Normal window"),
-                            (location::StartMode::Maximized, "Maximised (fills the screen)"),
-                            (location::StartMode::Fullscreen, "Full screen (covers the taskbar)"),
-                        ] {
-                            if ui.radio(self.start_mode == mode, label).clicked() {
-                                self.start_mode = mode;
-                                if let Err(e) = location::set_start_mode(mode) {
-                                    self.status = format!("Save failed: couldn't remember the window setting ({e})");
-                                }
-                            }
-                        }
-                        ui.separator();
-                        ui.label(RichText::new("Takes effect next time the diary starts.\nPress F11 any time to switch full screen on or off.").small());
-                    });
-                    if ui.button("Full screen on / off (F11)").clicked() {
-                        toggle_fullscreen(ui.ctx());
-                        ui.close();
-                    }
-                    ui.menu_button("Text size", |ui| {
-                        for (label, scale) in [("80%", 0.8), ("90%", 0.9), ("100% (normal)", 1.0), ("110%", 1.1), ("125%", 1.25), ("140%", 1.4), ("160%", 1.6)] {
-                            let on = (self.data.settings.ui_scale - scale).abs() < 0.01;
-                            if ui.radio(on, label).clicked() {
-                                self.data.settings.ui_scale = scale;
-                                settings_changed = true;
-                            }
-                        }
-                    });
-
-                    ui.separator();
-                    heading(ui, "HELP");
-                    if ui.button("Keyboard shortcuts…").clicked() {
-                        self.show_shortcuts = true;
-                        ui.close();
+        ui.separator();
+        heading(ui, "DISPLAY");
+        ui.menu_button("Colour theme", |ui| {
+            let current = theme::accent();
+            let mut chosen = None;
+            for (name, colour) in theme::PRESETS {
+                ui.horizontal(|ui| {
+                    let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                    let shade = theme::derive(colour).accent;
+                    ui.painter().rect_filled(rect, 4.0, shade);
+                    if ui.radio(current == colour, name).clicked() {
+                        chosen = Some(colour);
                     }
                 });
-                if settings_changed {
-                    self.persist();
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                let mut custom = current;
+                if ui.color_edit_button_srgb(&mut custom).changed() {
+                    chosen = Some(custom);
                 }
-                if ui.button("Lock").on_hover_text("Lock the diary (Ctrl+L)").clicked() {
-                    self.lock_now();
+                let label = if theme::preset_name(current).is_none() { "Custom colour (in use)" } else { "Pick your own colour" };
+                ui.label(label);
+            });
+            ui.label(RichText::new("Shades are worked out from your colour,\nand adjusted so text stays easy to read.").small());
+            if let Some(colour) = chosen {
+                self.set_colour_theme(ui.ctx(), colour);
+            }
+        });
+        ui.menu_button("Window on startup", |ui| {
+            for (mode, label) in [
+                (location::StartMode::Normal, "Normal window"),
+                (location::StartMode::Maximized, "Maximised (fills the screen)"),
+                (location::StartMode::Fullscreen, "Full screen (covers the taskbar)"),
+            ] {
+                if ui.radio(self.start_mode == mode, label).clicked() {
+                    self.start_mode = mode;
+                    if let Err(e) = location::set_start_mode(mode) {
+                        self.status = format!("Save failed: couldn't remember the window setting ({e})");
+                    }
                 }
-                if ui.button("Insights").on_hover_text("Mood patterns, writing statistics and reviews").clicked() {
-                    self.insights.open = !self.insights.open;
+            }
+            ui.separator();
+            ui.label(RichText::new("Takes effect next time the diary starts.\nPress F11 any time to switch full screen on or off.").small());
+        });
+        if ui.button("Full screen on / off (F11)").clicked() {
+            toggle_fullscreen(ui.ctx());
+            ui.close();
+        }
+        ui.menu_button("Text size", |ui| {
+            for (label, scale) in [("80%", 0.8), ("90%", 0.9), ("100% (normal)", 1.0), ("110%", 1.1), ("125%", 1.25), ("140%", 1.4), ("160%", 1.6)] {
+                let on = (self.data.settings.ui_scale - scale).abs() < 0.01;
+                if ui.radio(on, label).clicked() {
+                    self.data.settings.ui_scale = scale;
+                    settings_changed = true;
                 }
-                if ui.button("Pinned").on_hover_text("Your pinned entries").clicked() {
-                    self.show_pinned = !self.show_pinned;
+            }
+        });
+
+        ui.separator();
+        heading(ui, "HELP");
+        if ui.button("Keyboard shortcuts…").clicked() {
+            self.show_shortcuts = true;
+            ui.close();
+        }
+        settings_changed
+    }
+
+    /// The window's title bar: logo, search box and window controls. It is also how the window
+    /// is dragged (double-click to maximise).
+    fn title_bar(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let rect = ui.max_rect();
+        let bar = ui.interact(rect, ui.id().with("title_drag"), Sense::click_and_drag());
+        if bar.drag_started() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        if bar.double_clicked() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+        }
+        let painter = ui.painter().clone();
+        let cy = rect.center().y;
+
+        // Logo tile and name.
+        let tile = egui::Rect::from_center_size(egui::pos2(rect.min.x + 30.0, cy), vec2(28.0, 28.0));
+        painter.rect_filled(tile, 8.0, Color32::from_rgb(0x15, 0x30, 0x2D));
+        kit::paint_logo(&painter, tile.center(), 22.0, theme::shades().accent);
+        let name_font = FontId::new(23.0, fonts::serif_medium());
+        let tideline = painter.layout_no_wrap("Tideline".into(), name_font.clone(), theme::TEXT);
+        let name_pos = egui::pos2(rect.min.x + 52.0, cy - 1.0);
+        painter.text(name_pos, Align2::LEFT_CENTER, "Tideline", name_font, theme::TEXT);
+        painter.text(name_pos + vec2(tideline.size().x + 6.0, 0.0), Align2::LEFT_CENTER, "Journal", FontId::new(23.0, fonts::serif_italic()), theme::TEXT_2);
+
+        // Window controls on the right.
+        let mut x = rect.max.x;
+        for (icon, tip, action) in [
+            (kit::Icon::Close, "Close", 0),
+            (if maximized { kit::Icon::Restore } else { kit::Icon::Maximize }, if maximized { "Restore" } else { "Maximise" }, 1),
+            (kit::Icon::Minimize, "Minimise", 2),
+        ] {
+            let r = egui::Rect::from_min_max(egui::pos2(x - 46.0, rect.min.y), egui::pos2(x, rect.max.y));
+            x -= 46.0;
+            let resp = ui.interact(r, ui.id().with(("win_ctl", action)), Sense::click()).on_hover_text(tip);
+            if resp.hovered() {
+                painter.rect_filled(r, 0.0, if action == 0 { RED } else { theme::NAV_ACTIVE });
+            }
+            let col = if resp.hovered() && action == 0 { theme::BG } else { theme::TEXT_2 };
+            kit::paint(&painter, r.center(), 16.0, col, icon, false);
+            if resp.clicked() {
+                ctx.send_viewport_cmd(match action {
+                    0 => egui::ViewportCommand::Close,
+                    1 => egui::ViewportCommand::Maximized(!maximized),
+                    _ => egui::ViewportCommand::Minimized(true),
+                });
+            }
+        }
+
+        // Search box in the middle (only while the diary is open).
+        if self.lock.is_none() {
+            let width = (rect.width() - 460.0).clamp(240.0, 550.0);
+            let box_rect = egui::Rect::from_center_size(egui::pos2(rect.center().x, cy), vec2(width, 34.0));
+            painter.rect(box_rect, 10.0, theme::PANEL, Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+            kit::paint(&painter, egui::pos2(box_rect.min.x + 20.0, cy), 18.0, theme::TEXT_3, kit::Icon::Search, false);
+            let focused = ctx.memory(|m| m.has_focus(search_id()));
+            let filters_on = self.search_state.open || self.search_state.filters.is_active();
+            let show_filters = focused || !self.search.is_empty() || filters_on;
+            let right_pad = if show_filters { 92.0 } else { 70.0 };
+            let edit_rect = egui::Rect::from_min_max(egui::pos2(box_rect.min.x + 38.0, box_rect.min.y + 2.0), egui::pos2(box_rect.max.x - right_pad, box_rect.max.y - 2.0));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+                ui.add_sized(
+                    edit_rect.size(),
+                    egui::TextEdit::singleline(&mut self.search)
+                        .id(search_id())
+                        .frame(egui::Frame::NONE)
+                        .hint_text(RichText::new("Search your journal").color(theme::TEXT_3))
+                        .text_color(theme::TEXT)
+                        .vertical_align(egui::Align::Center),
+                );
+            });
+            if show_filters {
+                let fr = egui::Rect::from_min_max(egui::pos2(box_rect.max.x - 84.0, box_rect.min.y + 4.0), egui::pos2(box_rect.max.x - 6.0, box_rect.max.y - 4.0));
+                let resp = ui.interact(fr, ui.id().with("filters_toggle"), Sense::click()).on_hover_text("Search by category, mood, dates and more");
+                painter.rect(fr, 7.0, if filters_on { theme::NAV_ACTIVE } else { Color32::TRANSPARENT }, Stroke::new(1.0, if filters_on { theme::shades().accent } else { theme::BORDER }), egui::StrokeKind::Inside);
+                painter.text(fr.center(), Align2::CENTER_CENTER, "Filters", FontId::new(13.0, fonts::ui_bold()), if filters_on { theme::TEXT } else { theme::TEXT_2 });
+                if resp.clicked() {
+                    self.search_state.open = !self.search_state.open;
                 }
-                if ui.button("🎨 Categories").clicked() {
+            } else {
+                let hint = egui::Rect::from_min_max(egui::pos2(box_rect.max.x - 66.0, box_rect.min.y + 7.0), egui::pos2(box_rect.max.x - 10.0, box_rect.max.y - 7.0));
+                painter.rect(hint, 5.0, Color32::TRANSPARENT, Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+                painter.text(hint.center(), Align2::CENTER_CENTER, "Ctrl F", FontId::proportional(11.5), theme::TEXT_3);
+            }
+        }
+    }
+
+    /// The left menu: new entry, places to go, categories, lock and settings.
+    fn side_menu(&mut self, ui: &mut egui::Ui) {
+        let p = palette(ui.ctx());
+        ui.add_space(4.0);
+        if kit::button(ui, kit::Look::Primary, Some(kit::Icon::Plus), "New entry", Some(ui.available_width())).on_hover_text("New entry (Ctrl+N)").clicked() {
+            self.new_entry(self.selected);
+        }
+        ui.add_space(14.0);
+        ui.spacing_mut().item_spacing.y = 6.0;
+
+        let calendar_on = self.view != CalView::Photos && !self.search_state.showing(&self.search);
+        if kit::nav_item(ui, Some(kit::Icon::Sun), None, "Today", None, false).on_hover_text("Jump to today (Ctrl+T)").clicked() {
+            self.go_today();
+        }
+        if kit::nav_item(ui, Some(kit::Icon::Calendar), None, "Calendar", None, calendar_on).clicked() {
+            if self.view == CalView::Photos {
+                self.view = CalView::Month;
+            }
+            self.search.clear();
+            self.search_state.reset();
+        }
+        let timeline_on = self.search_state.open && self.search.is_empty() && !self.search_state.filters.is_active();
+        if kit::nav_item(ui, Some(kit::Icon::List), None, "Timeline", None, timeline_on).on_hover_text("Every entry, newest first").clicked() {
+            self.search.clear();
+            self.search_state.reset();
+            self.search_state.open = true;
+        }
+        let pinned = self.data.entries.iter().filter(|e| e.pinned).count();
+        if kit::nav_item(ui, Some(kit::Icon::Star), None, "Pinned", (pinned > 0).then(|| pinned.to_string()), self.show_pinned).clicked() {
+            self.show_pinned = !self.show_pinned;
+        }
+        if kit::nav_item(ui, Some(kit::Icon::Image), None, "Photos", None, self.view == CalView::Photos).clicked() {
+            self.view = CalView::Photos;
+            self.search.clear();
+            self.search_state.reset();
+        }
+        if kit::nav_item(ui, Some(kit::Icon::Chart), None, "Insights", None, self.insights.open).on_hover_text("Mood patterns, writing statistics and reviews").clicked() {
+            self.insights.open = !self.insights.open;
+        }
+
+        ui.add_space(22.0);
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            kit::section_label(ui, "Categories");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(6.0);
+                if ui
+                    .add(egui::Label::new(RichText::new("Edit").size(12.5).color(p.faint)).sense(Sense::click()))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .on_hover_text("Rename categories and change their colours")
+                    .clicked()
+                {
                     self.show_categories = true;
-                }
-                if ui.button("➕ New entry").on_hover_text("New entry (Ctrl+N)").clicked() {
-                    self.new_entry(self.selected);
                 }
             });
         });
-    }
+        ui.add_space(2.0);
+        let counts: Vec<(String, Color32, usize)> = self
+            .data
+            .categories
+            .iter()
+            .map(|c| (c.name.clone(), rgb(c.color), self.data.entries.iter().filter(|e| e.category == c.name).count()))
+            .collect();
+        egui::ScrollArea::vertical().id_salt("side_categories").max_height((ui.available_height() - 110.0).max(60.0)).show(ui, |ui| {
+            for (name, col, n) in counts {
+                let on = self.search_state.filters.category == name && self.search_state.showing(&self.search);
+                if kit::nav_item(ui, None, Some(col), &name, Some(n.to_string()), on).on_hover_text("Show this category's entries").clicked() {
+                    self.search.clear();
+                    self.search_state.reset();
+                    self.search_state.filters.category = name;
+                }
+            }
+        });
 
+        ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            let settings = kit::nav_item(ui, Some(kit::Icon::Sliders), None, "Settings", None, false);
+            let mut changed = false;
+            egui::Popup::menu(&settings).show(|ui| {
+                ui.set_min_width(300.0);
+                // Compact rows so the whole menu fits; it scrolls if the window is very short.
+                ui.spacing_mut().item_spacing.y = 1.0;
+                ui.spacing_mut().interact_size.y = 28.0;
+                ui.spacing_mut().button_padding = vec2(10.0, 3.0);
+                let max_h = (ui.ctx().content_rect().height() - 120.0).max(240.0);
+                egui::ScrollArea::vertical().max_height(max_h).show(ui, |ui| {
+                    changed = self.settings_menu(ui);
+                });
+            });
+            if changed {
+                self.persist();
+            }
+            if kit::nav_item(ui, Some(kit::Icon::Lock), None, "Lock journal", None, false).on_hover_text("Lock the diary (Ctrl+L)").clicked() {
+                self.lock_now();
+            }
+            ui.add_space(4.0);
+            let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+            ui.painter().rect_filled(line, 0.0, theme::BORDER_SOFT);
+        });
+    }
     /// Copy the (already encrypted) diary file somewhere chosen by the user.
     fn backup(&mut self) {
         let name = format!("diary-backup-{}.json", Local::now().format("%Y-%m-%d"));
@@ -1429,41 +1572,50 @@ clear_open_files(); // leftovers from opening attachments last time
         }
     }
 
-    /// Toolbar above the calendar: navigation, title and the Month / Week / Day switch.
+    /// Above the calendar: arrows, the month, Today / Surprise me and the Year / Month / Week / Day switch.
     fn calendar_toolbar(&mut self, ui: &mut egui::Ui) {
-        let p = palette(ui.ctx());
+        let timed = self.view != CalView::Photos;
+        let title = self.calendar_title();
         ui.horizontal(|ui| {
-            ui.spacing_mut().interact_size.y = 34.0;
-            let timed = self.view != CalView::Photos;
-            if timed && ui.button("◀").clicked() {
-                self.step_calendar(-1);
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if timed {
+                if kit::icon_button(ui, kit::Icon::ChevronLeft, "Previous").clicked() {
+                    self.step_calendar(-1);
+                }
+                if kit::icon_button(ui, kit::Icon::ChevronRight, "Next").clicked() {
+                    self.step_calendar(1);
+                }
+                ui.add_space(10.0);
             }
-            if timed && ui.button("▶").clicked() {
-                self.step_calendar(1);
-            }
-            ui.add_space(6.0);
-            ui.label(RichText::new(self.calendar_title()).size(24.0).strong().color(p.title));
-            ui.add_space(6.0);
-            if ui.button("Random").on_hover_text("Jump to a random entry from the past (Ctrl+R)").clicked() {
-                self.random_entry();
-            }
-            if ui.button("Today").on_hover_text("Jump to today (Ctrl+T)").clicked() {
-                self.go_today();
+            let font = FontId::new(if matches!(self.view, CalView::Month | CalView::Year | CalView::Photos) { 40.0 } else { 30.0 }, fonts::serif_display());
+            match (self.view, title.split_once(' ')) {
+                // "October 2026": the year is dimmer.
+                (CalView::Month, Some((month, year))) => {
+                    ui.label(RichText::new(month).font(font.clone()).color(theme::TEXT));
+                    ui.label(RichText::new(year).font(font).color(theme::TEXT_3));
+                }
+                _ => {
+                    ui.label(RichText::new(title).font(font).color(theme::TEXT));
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                for (view, label) in [(CalView::Day, "Day"), (CalView::Week, "Week"), (CalView::Month, "Month"), (CalView::Year, "Year"), (CalView::Photos, "Photos")] {
-                    let selected = self.view == view;
-                    let mut button = egui::Button::new(RichText::new(label).strong().color(Color32::WHITE));
-                    if selected {
-                        button = button.fill(theme::shades().selected_button).stroke(Stroke::new(2.0, p.accent));
-                    }
-                    if ui.add(button).clicked() {
-                        self.view = view;
-                        self.day_scroll_pending = true;
-                    }
+                if kit::button(ui, kit::Look::Ghost, Some(kit::Icon::Shuffle), "Surprise me", None).on_hover_text("Jump to a random entry from the past (Ctrl+R)").clicked() {
+                    self.random_entry();
+                }
+                if kit::button(ui, kit::Look::Ghost, None, "Today", None).on_hover_text("Jump to today (Ctrl+T)").clicked() {
+                    self.go_today();
                 }
             });
         });
+        if timed {
+            ui.add_space(10.0);
+            let views = [CalView::Year, CalView::Month, CalView::Week, CalView::Day];
+            let current = views.iter().position(|v| *v == self.view);
+            if let Some(i) = kit::segmented(ui, &["Year", "Month", "Week", "Day"], current) {
+                self.view = views[i];
+                self.day_scroll_pending = true;
+            }
+        }
     }
 
     fn calendar_title(&self) -> String {
@@ -1498,13 +1650,16 @@ clear_open_files(); // leftovers from opening attachments last time
             CalView::Month => {
                 let first = self.month;
                 let days = (self.shift_target(first) - first).num_days() as u64;
-                let days: Vec<NaiveDate> = (0..days).map(|n| first + chrono::Days::new(n)).collect();
-                self.grid_view(ui, &mut ev, &days, first.weekday().num_days_from_monday(), 21.0);
+                let last = first + chrono::Days::new(days - 1);
+                let start = week_start(first);
+                let end = week_start(last) + chrono::Days::new(6);
+                let days: Vec<NaiveDate> = (0..=(end - start).num_days() as u64).map(|n| start + chrono::Days::new(n)).collect();
+                self.grid_view(ui, &mut ev, &days, Some(first), 24.0);
             }
             CalView::Week => {
                 let monday = week_start(self.selected);
                 let days: Vec<NaiveDate> = (0..7).map(|n| monday + chrono::Days::new(n)).collect();
-                self.grid_view(ui, &mut ev, &days, 0, 28.0);
+                self.grid_view(ui, &mut ev, &days, None, 28.0);
             }
             CalView::Day => self.day_timeline(ui, &mut ev),
             CalView::Year => self.year_view(ui, &mut ev),
@@ -1531,27 +1686,28 @@ clear_open_files(); // leftovers from opening attachments last time
         }
     }
 
-    /// Month and week views: a grid of day cells, seven to a row.
-    fn grid_view(&mut self, ui: &mut egui::Ui, ev: &mut CalEvents, days: &[NaiveDate], offset: u32, pill_h: f32) {
-        let rows = (offset + days.len() as u32).div_ceil(7);
-        let head_h = 28.0;
+    /// Month and week views: a grid of day cells, seven to a row. `month` (the first of the month)
+    /// dims the days around it that belong to the neighbouring months.
+    fn grid_view(&mut self, ui: &mut egui::Ui, ev: &mut CalEvents, days: &[NaiveDate], month: Option<NaiveDate>, pill_h: f32) {
+        let rows = days.len().div_ceil(7);
+        let gap = 8.0;
+        let head_h = 34.0;
         let avail = ui.available_size();
-        let cell_w = avail.x / 7.0;
-        let min_h = if rows == 1 { 220.0 } else { 70.0 };
-        let cell_h = ((avail.y - head_h) / rows as f32).max(min_h);
-        let (grid, _) = ui.allocate_exact_size(vec2(avail.x, head_h + cell_h * rows as f32), Sense::hover());
+        let cell_w = (avail.x - gap * 6.0) / 7.0;
+        let fitted = (avail.y - head_h - gap * (rows as f32 - 1.0)) / rows as f32;
+        let cell_h = if rows == 1 { fitted.max(240.0) } else { fitted.clamp(96.0, 190.0) };
+        let (grid, _) = ui.allocate_exact_size(vec2(avail.x, head_h + cell_h * rows as f32 + gap * (rows as f32 - 1.0)), Sense::hover());
         let painter = ui.painter_at(grid);
         let p = palette(ui.ctx());
         let today = Local::now().date_naive();
-        let text_size = if rows == 1 { 15.0 } else { 14.0 };
+        let chip_size = 12.0;
 
-        for (i, name) in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].iter().enumerate() {
-            let r = egui::Rect::from_min_size(grid.min + vec2(cell_w * i as f32, 0.0), vec2(cell_w, head_h));
-            painter.rect_filled(r.shrink(1.0), 4.0, p.head_bg);
-            painter.text(r.center(), Align2::CENTER_CENTER, *name, FontId::proportional(16.0), p.head_text);
+        for (i, name) in ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].iter().enumerate() {
+            let x = grid.min.x + (cell_w + gap) * i as f32 + 12.0;
+            let spaced: String = name.chars().flat_map(|c| [c, '\u{200A}']).collect();
+            painter.text(egui::pos2(x, grid.min.y + head_h / 2.0), Align2::LEFT_CENTER, spaced, FontId::new(12.0, fonts::ui_bold()), p.faint);
         }
 
-        self.ensure_stats();
         self.ensure_stats();
         let by_day: Vec<Vec<Entry>> = days.iter().map(|d| self.day_entries(*d).into_iter().cloned().collect()).collect();
         let cats = &self.data.categories;
@@ -1561,53 +1717,54 @@ clear_open_files(); // leftovers from opening attachments last time
         let mut cells: Vec<(egui::Rect, NaiveDate)> = Vec::new();
 
         for (n, day) in days.iter().copied().enumerate() {
-            let slot = offset as usize + n;
-            let (col, row) = (slot % 7, slot / 7);
+            let (col, row) = (n % 7, n / 7);
             let rect = egui::Rect::from_min_size(
-                grid.min + vec2(cell_w * col as f32, head_h + cell_h * row as f32),
+                grid.min + vec2((cell_w + gap) * col as f32, head_h + (cell_h + gap) * row as f32),
                 vec2(cell_w, cell_h),
-            )
-            .shrink(1.5);
+            );
             cells.push((rect, day));
+            let in_month = month.is_none_or(|m| day.month() == m.month() && day.year() == m.year());
 
             let resp = ui.interact(rect, ui.id().with(("cell", day)), Sense::click());
-            let bg = if day == today {
-                p.today
-            } else if col >= 5 {
-                p.weekend
-            } else if resp.hovered() && drag.is_none() {
-                p.hover
-            } else {
-                p.cell
-            };
-            painter.rect_filled(rect, 6.0, bg);
-            let border = if day == selected { Stroke::new(2.5, p.accent) } else { Stroke::new(1.0, p.cell_border) };
-            painter.rect_stroke(rect, 6.0, border, egui::StrokeKind::Inside);
-            painter.text(rect.min + vec2(8.0, 6.0), Align2::LEFT_TOP, day.day().to_string(), FontId::proportional(19.0), p.day_num);
-            if let Some(m) = day_stats.get(&day).and_then(|s| s.mood()) {
-                let face = egui::Rect::from_center_size(egui::pos2(rect.max.x - 17.0, rect.min.y + 17.0), vec2(24.0, 24.0));
-                faces::paint(&painter, ui.ctx(), face, m.round() as u8, 1.0);
+            if in_month {
+                let bg = if resp.hovered() && drag.is_none() { p.hover } else { p.cell };
+                painter.rect(rect, 10.0, bg, Stroke::new(1.0, p.border_soft), egui::StrokeKind::Inside);
+            }
+            if day == selected {
+                painter.rect_stroke(rect, 10.0, Stroke::new(2.0, p.accent), egui::StrokeKind::Inside);
+            }
+            // The date: today sits in an amber circle.
+            let num_at = egui::pos2(rect.min.x + 26.0, rect.min.y + 25.0);
+            if day == today {
+                painter.circle_filled(num_at, 14.0, p.today);
+            }
+            let num_color = if day == today { theme::BG } else if in_month { p.day_num } else { theme::TEXT_3.gamma_multiply(0.7) };
+            painter.text(num_at, Align2::CENTER_CENTER, day.day().to_string(), FontId::new(15.0, fonts::ui_bold()), num_color);
+            if in_month {
+                if let Some(m) = day_stats.get(&day).and_then(|s| s.mood()) {
+                    painter.circle_filled(egui::pos2(rect.max.x - 20.0, rect.min.y + 25.0), 5.0, mood_color(m));
+                }
             }
 
-            let entries = &by_day[n];
-            let top = rect.min.y + 30.0;
-            let fit = (((rect.max.y - top - 4.0) / (pill_h + 2.0)).floor() as usize).max(1);
-            let shown = if entries.len() > fit { fit - 1 } else { entries.len() };
-            for (i, e) in entries.iter().take(shown).enumerate() {
-                let pr = egui::Rect::from_min_size(
-                    egui::pos2(rect.min.x + 4.0, top + i as f32 * (pill_h + 2.0)),
-                    vec2(rect.width() - 8.0, pill_h),
-                );
-                pill(ui, &painter, pr, e, cats, text_size, drag, ev);
-            }
-            if entries.len() > shown {
-                painter.text(
-                    egui::pos2(rect.min.x + 8.0, top + shown as f32 * (pill_h + 2.0) + pill_h / 2.0),
-                    Align2::LEFT_CENTER,
-                    format!("+{} more", entries.len() - shown),
-                    FontId::proportional(text_size),
-                    p.muted,
-                );
+            if in_month {
+                let entries = &by_day[n];
+                let top = rect.min.y + 48.0;
+                let step = pill_h + 4.0;
+                let fit = (((rect.max.y - top - 6.0) / step).floor() as usize).max(1);
+                let shown = if entries.len() > fit { fit - 1 } else { entries.len() };
+                for (i, e) in entries.iter().take(shown).enumerate() {
+                    let pr = egui::Rect::from_min_size(egui::pos2(rect.min.x + 10.0, top + i as f32 * step), vec2(rect.width() - 20.0, pill_h));
+                    pill(ui, &painter, pr, e, cats, chip_size, drag, ev);
+                }
+                if entries.len() > shown {
+                    painter.text(
+                        egui::pos2(rect.min.x + 14.0, top + shown as f32 * step + pill_h / 2.0),
+                        Align2::LEFT_CENTER,
+                        format!("+{} more", entries.len() - shown),
+                        FontId::proportional(chip_size),
+                        p.faint,
+                    );
+                }
             }
 
             if resp.double_clicked() {
@@ -1626,7 +1783,7 @@ clear_open_files(); // leftovers from opening attachments last time
         }
         if drag.is_some() {
             if let Some((r, _)) = pointer.and_then(|pos| cells.iter().find(|(r, _)| r.contains(pos))) {
-                painter.rect_stroke(*r, 6.0, Stroke::new(3.0, p.accent), egui::StrokeKind::Inside);
+                painter.rect_stroke(*r, 10.0, Stroke::new(2.5, p.accent), egui::StrokeKind::Inside);
             }
         }
     }
@@ -1663,7 +1820,7 @@ clear_open_files(); // leftovers from opening attachments last time
                 } else if resp.hovered() && drag.is_none() {
                     p.hover
                 } else if !(7..22).contains(&hour) {
-                    p.weekend
+                    p.cell
                 } else {
                     p.cell
                 };
@@ -1734,7 +1891,9 @@ clear_open_files(); // leftovers from opening attachments last time
         let selected = self.selected;
         let mut open_day = None;
 
+        let content_w = ui.available_width() - 16.0;
         egui::ScrollArea::vertical().id_salt("year_scroll").auto_shrink([false, false]).show(ui, |ui| {
+            ui.set_max_width(content_w);
             // ---- heat-map: one column per week, one row per weekday
             let (label_w, gap, top_h) = (38.0, 3.0, 22.0);
             let start = week_start(jan1);
@@ -1800,30 +1959,39 @@ clear_open_files(); // leftovers from opening attachments last time
 
             // ---- totals
             ui.add_space(14.0);
-            ui.label(RichText::new(format!("{year} in numbers")).size(20.0).strong().color(p.title));
+            ui.label(RichText::new(format!("{year} in numbers")).font(FontId::new(26.0, fonts::serif_medium())).color(p.title));
             ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                let mut tile = |label: &str, value: String| {
-                    egui::Frame::new().fill(p.cell).stroke(Stroke::new(1.0, p.cell_border)).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                        ui.set_min_width(110.0);
-                        ui.label(RichText::new(value).size(28.0).strong().color(p.title));
-                        ui.label(RichText::new(label).color(p.muted));
-                    });
-                };
-                tile("entries", summary.entries.to_string());
-                tile("days written", summary.days_written.to_string());
-                tile("words", summary.words.to_string());
-                tile("day streak now", summary.current_streak.to_string());
-                tile("longest streak", summary.longest_streak.to_string());
-                tile("average mood", summary.mood_avg.map_or("–".to_string(), |m| format!("{m:.1}")));
-                if goal > 0 {
-                    tile(&format!("days with {goal}+ words"), summary.goal_days.to_string());
-                }
-            });
+            let mut tiles: Vec<(String, String)> = vec![
+                ("entries".into(), summary.entries.to_string()),
+                ("days written".into(), summary.days_written.to_string()),
+                ("words".into(), summary.words.to_string()),
+                ("day streak now".into(), summary.current_streak.to_string()),
+                ("longest streak".into(), summary.longest_streak.to_string()),
+                ("average mood".into(), summary.mood_avg.map_or("–".to_string(), |m| format!("{m:.1}"))),
+            ];
+            if goal > 0 {
+                tiles.push((format!("days with {goal}+ words"), summary.goal_days.to_string()));
+            }
+            // Evenly sized tiles, as many to a row as fit.
+            let gap = 10.0;
+            let per_row = (((ui.available_width() + gap) / (170.0 + gap)).floor() as usize).clamp(1, tiles.len());
+            let tile_w = (ui.available_width() - gap * (per_row as f32 - 1.0)) / per_row as f32;
+            for row in tiles.chunks(per_row) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for (label, value) in row {
+                        egui::Frame::new().fill(p.cell).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(12).inner_margin(14).show(ui, |ui| {
+                            ui.set_width(tile_w - 28.0);
+                            ui.label(RichText::new(value).font(FontId::new(30.0, fonts::serif_display())).color(p.title));
+                            ui.label(RichText::new(label).size(13.5).color(p.muted));
+                        });
+                    }
+                });
+            }
 
             // ---- categories
             ui.add_space(14.0);
-            ui.label(RichText::new("Entries by category").size(20.0).strong().color(p.title));
+            ui.label(RichText::new("Entries by category").font(FontId::new(26.0, fonts::serif_medium())).color(p.title));
             ui.add_space(6.0);
             if summary.categories.is_empty() {
                 ui.label(RichText::new("Nothing written in this year yet.").color(p.muted));
@@ -1841,7 +2009,7 @@ clear_open_files(); // leftovers from opening attachments last time
 
             // ---- mood
             ui.add_space(14.0);
-            ui.label(RichText::new("Mood through the year").size(20.0).strong().color(p.title));
+            ui.label(RichText::new("Mood through the year").font(FontId::new(26.0, fonts::serif_medium())).color(p.title));
             ui.add_space(6.0);
             if series.is_empty() {
                 ui.label(RichText::new("Rate your entries with the Mood buttons in the editor and they will be charted here.").color(p.muted));
@@ -1885,7 +2053,10 @@ clear_open_files(); // leftovers from opening attachments last time
             minute,
             second,
             category: e.category.clone(),
-            text: e.text.clone(),
+            title: markdown::split_title(&e.text).0.unwrap_or_default(),
+            text: markdown::split_title(&e.text).1,
+            baseline: String::new(),
+            discard_arm: false,
             mood: e.mood,
             pinned: e.pinned,
             sensitive: e.sensitive,
@@ -1896,6 +2067,9 @@ clear_open_files(); // leftovers from opening attachments last time
             want_focus: Some((usize::MAX, usize::MAX)),
         });
         self.editor_msg.clear();
+        if let Some(ed) = self.editor.as_mut() {
+            ed.baseline = ed.full_text();
+        }
     }
 
     fn shift_target(&self, first: NaiveDate) -> NaiveDate {
@@ -1914,42 +2088,53 @@ clear_open_files(); // leftovers from opening attachments last time
         let words: usize = entries.iter().filter(|e| !e.generated).map(|e| markdown::word_count(&e.text)).sum();
         let goal = self.data.settings.daily_word_goal as usize;
 
-        ui.label(RichText::new(self.selected.format("%A").to_string()).size(14.0).color(p.muted));
-        ui.label(RichText::new(self.selected.format("%e %B %Y").to_string()).size(22.0).strong().color(p.title));
-        ui.add_space(6.0);
-        if ui.button("➕ Add entry for this day").on_hover_text("New entry (Ctrl+N)").clicked() {
+        // The day, in words.
+        kit::section_label(ui, &self.selected.format("%A").to_string());
+        ui.add_space(2.0);
+        ui.label(RichText::new(self.selected.format("%-d %B %Y").to_string()).font(FontId::new(34.0, fonts::serif_display())).color(p.title));
+        let moods: Vec<f32> = entries.iter().filter(|e| !e.sensitive).filter_map(|e| e.mood).map(f32::from).collect();
+        let mut summary = format!("{} {} · {} words", entries.len(), if entries.len() == 1 { "entry" } else { "entries" }, words);
+        if !moods.is_empty() {
+            let avg = (moods.iter().sum::<f32>() / moods.len() as f32).round() as usize;
+            summary.push_str(&format!(" · Mood: {}", theme::MOOD_NAMES[avg.clamp(1, 5) - 1]));
+        }
+        ui.label(RichText::new(summary).size(14.0).color(p.muted));
+        ui.add_space(14.0);
+
+        if kit::button(ui, kit::Look::AccentOutline, Some(kit::Icon::Plus), "Write about this day", Some(ui.available_width())).on_hover_text("New entry (Ctrl+N)").clicked() {
             self.new_entry(self.selected);
         }
         let mut ask_summary = false;
         if self.ai_ready() && self.day_has_summarisable(self.selected) {
-            ui.add_space(4.0);
-            if ui.button("Summarise this day (AI)").on_hover_text("An AI model on this PC writes a short summary of the day's entries (private entries are never used)").clicked() {
+            ui.add_space(8.0);
+            if kit::button(ui, kit::Look::Ghost, Some(kit::Icon::Sparkle), "Summarise", None)
+                .on_hover_text("An AI model on this PC writes a short summary of the day's entries (private entries are never used)")
+                .clicked()
+            {
                 ask_summary = true;
             }
         }
         if goal > 0 {
-            ui.add_space(6.0);
+            ui.add_space(12.0);
             let done = words >= goal;
-            let bar = egui::ProgressBar::new((words as f32 / goal as f32).min(1.0))
-                .text(RichText::new(format!("{words} / {goal} words{}", if done { "  ✓" } else { "" })).color(Color32::WHITE))
-                .fill(if done { Color32::from_rgb(22, 163, 74) } else { blue() })
-                .desired_width(f32::INFINITY);
-            ui.add(bar);
-        } else if words > 0 {
-            ui.add_space(4.0);
-            ui.label(RichText::new(format!("{words} words")).small().color(p.muted));
+            ui.label(RichText::new(format!("{words} / {goal} words{}", if done { "  ✓" } else { "" })).size(13.0).color(if done { p.accent } else { p.muted }));
+            let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());
+            ui.painter().rect_filled(bar, 3.0, p.cell_border);
+            let mut filled = bar;
+            filled.set_width(bar.width() * (words as f32 / goal as f32).min(1.0));
+            ui.painter().rect_filled(filled, 3.0, p.accent);
         }
         if self.status.starts_with("Save failed") {
-            ui.add_space(4.0);
-            ui.label(RichText::new(&self.status).color(Color32::from_rgb(239, 68, 68)));
+            ui.add_space(6.0);
+            ui.label(RichText::new(&self.status).color(RED));
         } else if !self.status.is_empty() && self.status != "Saved" {
-            ui.add_space(4.0);
-            ui.label(RichText::new(&self.status).small().color(p.muted));
+            ui.add_space(6.0);
+            ui.label(RichText::new(&self.status).small().color(p.faint));
         }
         // Undo for the last delete.
         let mut undo = None;
         if let Some(id) = self.last_trashed.filter(|id| self.data.trash.iter().any(|t| t.entry.id == *id)) {
-            ui.add_space(4.0);
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Entry moved to Recently deleted.").small().color(p.muted));
                 if ui.small_button("Undo").clicked() {
@@ -1958,10 +2143,8 @@ clear_open_files(); // leftovers from opening attachments last time
             });
         }
         self.recovery_hint(ui, &p);
-        ui.add_space(8.0);
-        ui.separator();
+        ui.add_space(14.0);
 
-        let body = ui.style().text_styles[&egui::TextStyle::Body].size;
         let mut edit = None;
         let mut delete = None;
         let mut jump = None;
@@ -1970,122 +2153,136 @@ clear_open_files(); // leftovers from opening attachments last time
         let mut hide = None;
         let mut save_attachment: Option<Attachment> = None;
         let mut open_attachment: Option<Attachment> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 12.0;
             if entries.is_empty() {
-                ui.add_space(8.0);
-                ui.label("No entries for this day yet.");
+                // A blank page: a dashed outline with a quiet note.
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 130.0), Sense::hover());
+                let outline = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+                ui.painter().extend(egui::Shape::dashed_line(&outline, Stroke::new(1.2, theme::BORDER), 6.0, 5.0));
+                ui.painter().text(r.center(), Align2::CENTER_CENTER, "A blank page.", FontId::new(19.0, fonts::serif_italic()), p.faint);
             }
             for e in &entries {
                 let c = category_color(&self.data.categories, &e.category);
-                let fg = text_on(c);
                 let hidden = e.sensitive && !self.revealed.contains(&e.id);
-                egui::Frame::new()
-                    .fill(c)
-                    .corner_radius(10)
-                    .inner_margin(10)
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&e.category).strong().color(fg));
-                            if let Some(m) = e.mood.filter(|_| !hidden) {
-                                mood_badge(ui, m);
-                            }
-                            if e.sensitive {
-                                ui.label(RichText::new("Private").small().italics().color(fg));
-                            }
-                            if e.generated {
-                                ui.label(RichText::new("AI summary").small().italics().color(fg));
-                            } else if e.ai {
-                                ui.label(RichText::new("AI-assisted").small().italics().color(fg));
-                            }
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                // Star: pin or unpin this entry.
-                                let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
-                                paint_star(ui.painter(), r.center(), 9.0, fg, e.pinned);
-                                if resp.on_hover_text(if e.pinned { "Unpin" } else { "Pin this entry" }).clicked() {
-                                    toggle_pin = Some(e.id);
-                                }
-                                let time = e.added_at.get(11..16).unwrap_or("");
-                                ui.label(RichText::new(time).small().color(fg));
-                            });
-                        });
-                        ui.add_space(4.0);
-                        if hidden {
-                            // Stand-in lines where the text would be, and a click to reveal.
-                            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 54.0), Sense::click());
-                            for (i, width) in [0.95, 0.8, 0.55].iter().enumerate() {
-                                let bar = egui::Rect::from_min_size(
-                                    r.min + vec2(0.0, 4.0 + i as f32 * 16.0),
-                                    vec2(r.width() * width, 10.0),
-                                );
-                                ui.painter().rect_filled(bar, 5.0, fg.gamma_multiply(0.28));
-                            }
-                            ui.painter().text(r.center(), Align2::CENTER_CENTER, "Private entry - click to show", FontId::proportional(15.0), fg);
-                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                                reveal = Some(e.id);
-                            }
-                        } else {
-                            let style = markdown::Style { text: fg, link: fg, size: body };
-                            markdown::render(ui, &e.text, &style, &mut self.media, &self.data.images);
-                            for a in &e.attachments {
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(format!("{} ({})", a.name, human_size(a.size))).color(fg));
-                                    if ui.small_button("Save as…").clicked() {
-                                        save_attachment = Some(a.clone());
-                                    }
-                                    if ui.small_button("Open").clicked() {
-                                        open_attachment = Some(a.clone());
-                                    }
-                                });
-                            }
+                egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(14).inner_margin(egui::Margin::same(18)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    ui.horizontal(|ui| {
+                        kit::category_pill(ui, c, &e.category);
+                        ui.label(RichText::new(e.added_at.get(11..16).unwrap_or("")).size(13.0).color(p.faint));
+                        if e.sensitive {
+                            ui.label(RichText::new("Private").size(12.0).italics().color(p.faint));
                         }
-                        ui.add_space(6.0);
-                        ui.horizontal(|ui| {
-                            if !hidden {
-                                if ui.button("Edit").clicked() {
-                                    edit = Some(e.id);
-                                }
-                                if e.sensitive && ui.button("Hide").clicked() {
-                                    hide = Some(e.id);
-                                }
-                            }
-                            if ui.add(egui::Button::new(RichText::new("Delete").color(Color32::WHITE)).fill(RED)).clicked() {
-                                delete = Some(e.id);
+                        if e.generated {
+                            ui.label(RichText::new("AI summary").size(12.0).italics().color(p.faint));
+                        } else if e.ai {
+                            ui.label(RichText::new("AI-assisted").size(12.0).italics().color(p.faint));
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Star: pin or unpin this entry.
+                            let (r, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
+                            kit::paint(ui.painter(), r.center(), 18.0, if e.pinned { theme::TODAY } else { p.faint }, kit::Icon::Star, e.pinned);
+                            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if e.pinned { "Unpin" } else { "Pin this entry" }).clicked() {
+                                toggle_pin = Some(e.id);
                             }
                         });
                     });
-                ui.add_space(6.0);
+                    if hidden {
+                        // Stand-in lines where the text would be, and a click to reveal.
+                        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
+                        for (i, width) in [0.95, 0.8, 0.55].iter().enumerate() {
+                            let bar = egui::Rect::from_min_size(r.min + vec2(0.0, 4.0 + i as f32 * 18.0), vec2(r.width() * width, 10.0));
+                            ui.painter().rect_filled(bar, 5.0, p.cell_border.gamma_multiply(0.6));
+                        }
+                        ui.painter().text(r.center(), Align2::CENTER_CENTER, "Private entry - click to show", FontId::proportional(14.0), p.ink);
+                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            reveal = Some(e.id);
+                        }
+                    } else {
+                        let (title, body) = markdown::split_title(&e.text);
+                        if let Some(title) = title {
+                            ui.label(RichText::new(title).font(FontId::new(22.0, fonts::serif_medium())).color(p.title));
+                        }
+                        let preview = markdown::plain_text(&body);
+                        if !preview.is_empty() {
+                            let mut job = egui::text::LayoutJob::default();
+                            job.wrap.max_width = ui.available_width();
+                            job.wrap.max_rows = 5;
+                            job.wrap.overflow_character = Some('…');
+                            job.append(
+                                &preview,
+                                0.0,
+                                egui::text::TextFormat { font_id: FontId::new(16.0, fonts::serif()), color: p.muted, line_height: Some(16.0 * 1.6), ..Default::default() },
+                            );
+                            ui.label(job);
+                        }
+                        for a in &e.attachments {
+                            ui.horizontal(|ui| {
+                                kit::paint(ui.painter(), ui.cursor().min + vec2(8.0, 10.0), 15.0, p.faint, kit::Icon::Paperclip, false);
+                                ui.add_space(20.0);
+                                ui.label(RichText::new(format!("{} ({})", a.name, human_size(a.size))).size(13.0).color(p.muted));
+                                if ui.small_button("Save as…").clicked() {
+                                    save_attachment = Some(a.clone());
+                                }
+                                if ui.small_button("Open").clicked() {
+                                    open_attachment = Some(a.clone());
+                                }
+                            });
+                        }
+                    }
+                    // Footer: word count, Open and the more-menu.
+                    let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                    ui.painter().rect_filled(line, 0.0, p.border_soft);
+                    ui.horizontal(|ui| {
+                        if !hidden {
+                            ui.label(RichText::new(format!("{} words", markdown::word_count(&e.text))).size(13.0).color(p.faint));
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let more = kit::small_button(ui, kit::Look::Ghost, Some(kit::Icon::Dots), "").on_hover_text("More");
+                            egui::Popup::menu(&more).show(|ui| {
+                                ui.set_min_width(150.0);
+                                if e.sensitive && !hidden && ui.button("Hide again").clicked() {
+                                    hide = Some(e.id);
+                                    ui.close();
+                                }
+                                if ui.add(egui::Button::new(RichText::new("Delete").color(RED))).clicked() {
+                                    delete = Some(e.id);
+                                    ui.close();
+                                }
+                            });
+                            if !hidden && kit::small_button(ui, kit::Look::Ghost, None, "Open").clicked() {
+                                edit = Some(e.id);
+                            }
+                        });
+                    });
+                });
             }
 
             // What was written on this date in earlier years.
             if !memories.is_empty() {
                 ui.add_space(10.0);
-                ui.separator();
-                ui.label(RichText::new("On this day").size(18.0).strong().color(p.title));
-                ui.add_space(4.0);
+                kit::section_label(ui, "On this day");
                 for m in memories.iter().take(12) {
                     let c = category_color(&self.data.categories, &m.category);
-                    let fg = text_on(c);
-                    let card = egui::Frame::new().fill(c).corner_radius(10).inner_margin(8).show(ui, |ui| {
+                    let card = egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(12).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(m.date.get(0..4).unwrap_or("")).strong().color(fg));
-                            if let Some(mood) = m.mood.filter(|_| !m.sensitive) {
-                                mood_badge(ui, mood);
-                            }
-                            ui.label(RichText::new(m.added_at.get(11..16).unwrap_or("")).small().color(fg));
+                            ui.painter().circle_filled(ui.cursor().min + vec2(5.0, 11.0), 3.5, c);
+                            ui.add_space(14.0);
+                            ui.label(RichText::new(m.date.get(0..4).unwrap_or("")).font(FontId::new(18.0, fonts::serif_medium())).color(p.title));
+                            ui.label(RichText::new(m.added_at.get(11..16).unwrap_or("")).size(13.0).color(p.faint));
                         });
                         let mut s = entry_label(m);
                         if s.chars().count() > 100 {
                             s = s.chars().take(100).collect::<String>() + "…";
                         }
-                        ui.label(RichText::new(s).color(fg));
+                        ui.label(RichText::new(s).size(14.0).color(p.muted));
                     });
                     let resp = ui.interact(card.response.rect, ui.id().with(("memory", m.id)), Sense::click());
                     if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                         jump = NaiveDate::parse_from_str(&m.date, "%Y-%m-%d").ok();
                     }
-                    ui.add_space(4.0);
                 }
             }
         });
@@ -2160,412 +2357,6 @@ clear_open_files(); // leftovers from opening attachments last time
         }
     }
 
-    fn entry_window(&mut self, ctx: &egui::Context) {
-        if self.editor.is_none() {
-            return;
-        }
-        let p = palette(ctx);
-        let dark = ctx.theme() == egui::Theme::Dark;
-        let template_names = self.template_names();
-        let ai_ready = self.ai_ready();
-        let (mut ask_draft, mut ask_question) = (false, false);
-        let (mut chosen_template, mut open_templates, mut persist_settings) = (None::<String>, false, false);
-        let DiaryApp { editor, data, media, show_marks, editor_msg, save_requested, .. } = self;
-        let ed = editor.as_mut().unwrap();
-        let mut save_it = false;
-        let mut cancel = false;
-        if std::mem::take(save_requested) && !ed.text.trim().is_empty() {
-            save_it = true;
-        }
-
-        // Keyboard shortcuts for the common formats.
-        let shortcuts = [(egui::Key::B, markdown::Format::Bold), (egui::Key::I, markdown::Format::Italic)];
-        for (key, format) in shortcuts {
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key)) {
-                apply_format(ctx, ed, format);
-            }
-        }
-        // Images dropped onto the window.
-        for file in ctx.input(|i| i.raw.dropped_files.clone()) {
-            let path = file.path();
-            if is_image_path(path) {
-                match import_image(data, path) {
-                    Ok(md) => insert_image(ctx, ed, &md),
-                    Err(e) => *editor_msg = e,
-                }
-            } else {
-                match import_attachment(data, path) {
-                    Ok(a) => ed.attachments.push(a),
-                    Err(e) => *editor_msg = e,
-                }
-            }
-        }
-
-        egui::Window::new(if ed.id.is_some() { "Edit entry" } else { "New entry" })
-            .title_bar(false)
-            .frame(popup_frame(&p, dark))
-            .resizable(true)
-            .default_size([940.0, 620.0])
-            .min_size([560.0, 380.0])
-            .pivot(Align2::CENTER_CENTER)
-            .default_pos(ctx.content_rect().center())
-            .show(ctx, |ui| {
-                if popup_header(ui, &p, if ed.id.is_some() { "Edit entry" } else { "New entry" }) {
-                    cancel = true;
-                }
-                egui::Frame::new().inner_margin(14).show(ui, |ui| {
-                    // Day, time and category.
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label("Date:");
-                        let mut picked = jiff::civil::date(ed.date.year() as i16, ed.date.month() as i8, ed.date.day() as i8);
-                        ui.add(egui_extras::DatePickerButton::new(&mut picked).id_salt("entry_date").show_icon(false));
-                        if let Some(d) = NaiveDate::from_ymd_opt(picked.year() as i32, picked.month() as u32, picked.day() as u32) {
-                            ed.date = d;
-                        }
-                        ui.label(RichText::new(ed.date.format("%A").to_string()).color(p.muted));
-                        ui.add_space(10.0);
-                        ui.label("Time:");
-                        let two = |n: f64, _: std::ops::RangeInclusive<usize>| format!("{:02}", n as u32);
-                        ui.add(egui::DragValue::new(&mut ed.hour).range(0..=23).custom_formatter(two));
-                        ui.label(":");
-                        ui.add(egui::DragValue::new(&mut ed.minute).range(0..=59).custom_formatter(two));
-                        ui.add_space(10.0);
-                        ui.label("Category:");
-                        let cats = &data.categories;
-                        let sel_color = category_color(cats, &ed.category);
-                        egui::ComboBox::from_id_salt("cat")
-                            .selected_text(RichText::new(&ed.category).strong().color(text_on(sel_color)).background_color(sel_color))
-                            .show_ui(ui, |ui| {
-                                for c in cats {
-                                    let col = rgb(c.color);
-                                    ui.selectable_value(
-                                        &mut ed.category,
-                                        c.name.clone(),
-                                        RichText::new(&c.name).strong().color(text_on(col)).background_color(col),
-                                    );
-                                }
-                            });
-                        ui.add_space(10.0);
-                        ui.label("Mood:");
-                        for m in 1..=5u8 {
-                            let (r, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
-                            let on = ed.mood == Some(m);
-                            if on {
-                                ui.painter().circle_stroke(r.center(), 14.5, Stroke::new(2.5, p.ink));
-                            }
-                            faces::paint(ui.painter(), ui.ctx(), r.shrink(2.0), m, if on || resp.hovered() { 1.0 } else { 0.5 });
-                            let resp = resp.on_hover_text(format!("{} (click again to clear)", MOOD_LABELS[usize::from(m) - 1]));
-                            if resp.clicked() {
-                                ed.mood = if on { None } else { Some(m) };
-                            }
-                        }
-                        ui.add_space(10.0);
-                        ui.checkbox(&mut ed.pinned, "Pinned").on_hover_text("List this entry under Pinned and star it on the calendar");
-                        ui.checkbox(&mut ed.sensitive, "Private").on_hover_text("Hide this entry until you click it");
-                    });
-                    ui.add_space(6.0);
-
-                    if data.settings.show_prompts && ed.text.trim().is_empty() {
-                        // A gentle nudge for a blank page; it disappears as soon as you start writing.
-                        let prompt = templates::prompt_for(ed.date, ed.prompt_offset);
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("Prompt:").color(p.muted));
-                            ui.label(RichText::new(prompt).italics().color(p.ink));
-                            if ui.small_button("Use it").on_hover_text("Start the entry with this question").clicked() {
-                                ed.text = format!("## {prompt}\n\n");
-                                ed.want_focus = Some((usize::MAX, usize::MAX));
-                            }
-                            if ui.small_button("Another").clicked() {
-                                ed.prompt_offset += 1;
-                            }
-                            if ui.small_button("Hide prompts").on_hover_text("You can turn them back on under Settings").clicked() {
-                                data.settings.show_prompts = false;
-                                persist_settings = true;
-                            }
-                        });
-                        ui.add_space(4.0);
-                    }
-                    // Formatting toolbar.
-                    ui.horizontal_wrapped(|ui| {
-                        use markdown::Format::*;
-                        let buttons: [(RichText, &str, markdown::Format); 10] = [
-                            (RichText::new("B").strong().color(Color32::WHITE), "Bold (Ctrl+B)", Bold),
-                            (RichText::new("I").italics().color(Color32::WHITE), "Italic (Ctrl+I)", Italic),
-                            (RichText::new("S").strikethrough().color(Color32::WHITE), "Strikethrough", Strike),
-                            (RichText::new("Code").monospace().color(Color32::WHITE), "Code", Code),
-                            (RichText::new("H1").color(Color32::WHITE), "Large heading", Heading(1)),
-                            (RichText::new("H2").color(Color32::WHITE), "Medium heading", Heading(2)),
-                            (RichText::new("H3").color(Color32::WHITE), "Small heading", Heading(3)),
-                            (RichText::new("• List").color(Color32::WHITE), "Bulleted list", Bullet),
-                            (RichText::new("1. List").color(Color32::WHITE), "Numbered list", Numbered),
-                            (RichText::new("Quote").color(Color32::WHITE), "Quote", Quote),
-                        ];
-                        for (label, tip, format) in buttons {
-                            if ui.button(label).on_hover_text(tip).clicked() {
-                                apply_format(ctx, ed, format);
-                            }
-                        }
-                        ui.menu_button("Template", |ui| {
-                            for name in &template_names {
-                                if ui.button(name).clicked() {
-                                    chosen_template = Some(name.clone());
-                                    ui.close();
-                                }
-                            }
-                            ui.separator();
-                            if ui.button("Manage templates…").clicked() {
-                                open_templates = true;
-                                ui.close();
-                            }
-                        });
-                        if ai_ready {
-                            // Only shown once the AI helpers are switched on and Ollama is running.
-                            let can_draft = !ed.text.trim().is_empty();
-                            if ui.add_enabled(can_draft, egui::Button::new("AI draft")).on_hover_text("Turn your rough notes into a diary entry. It runs on this PC, and anything it writes is marked as AI-assisted.").clicked() {
-                                ask_draft = true;
-                            }
-                            if ui.button("AI question").on_hover_text("Suggest a question to reflect on, based on your recent entries").clicked() {
-                                ask_question = true;
-                            }
-                        }
-                        ui.add_space(8.0);
-                        if ui.button("🖼 Image…").on_hover_text("Add a picture (or drop one onto this window)").clicked() {
-                            let picked = rfd::FileDialog::new()
-                                .add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
-                                .pick_file();
-                            if let Some(path) = picked {
-                                match import_image(data, &path) {
-                                    Ok(md) => {
-                                        insert_image(ctx, ed, &md);
-                                        editor_msg.clear();
-                                    }
-                                    Err(e) => *editor_msg = e,
-                                }
-                            }
-                        }
-                        if ui.button("Attach file…").on_hover_text("Attach any file (up to 25 MB), or drop one onto this window").clicked() {
-                            if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                match import_attachment(data, &path) {
-                                    Ok(a) => {
-                                        ed.attachments.push(a);
-                                        editor_msg.clear();
-                                    }
-                                    Err(e) => *editor_msg = e,
-                                }
-                            }
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.checkbox(show_marks, "Show formatting marks");
-                        });
-                    });
-                    if !editor_msg.is_empty() {
-                        ui.label(RichText::new(editor_msg.as_str()).color(Color32::from_rgb(239, 68, 68)));
-                    }
-                    if !ed.attachments.is_empty() {
-                        ui.add_space(4.0);
-                        let mut remove = None;
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("Attachments:").color(p.muted));
-                            for (i, a) in ed.attachments.iter().enumerate() {
-                                egui::Frame::new().fill(p.head_bg).corner_radius(8).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
-                                    ui.label(RichText::new(format!("{} ({})", a.name, human_size(a.size))).color(p.head_text));
-                                    let x = egui::Button::new(RichText::new("Remove").small().color(Color32::WHITE)).fill(RED);
-                                    if ui.add(x).clicked() {
-                                        remove = Some(i);
-                                    }
-                                });
-                            }
-                        });
-                        if let Some(i) = remove {
-                            ed.attachments.remove(i);
-                        }
-                    }
-                    ui.add_space(6.0);
-
-                    // The page: styled text blocks, with pictures shown in between.
-                    let mut page = |ui: &mut egui::Ui| {
-                    let height = (ui.available_height() - 52.0).max(120.0);
-                    let body = ui.style().text_styles[&egui::TextStyle::Body].size;
-                    let st = live::LiveStyle { ink: p.ink, muted: p.muted, accent: p.accent, size: body };
-                    let marks = *show_marks;
-                    egui::Frame::new().fill(p.cell).stroke(Stroke::new(1.0, p.cell_border)).inner_margin(10).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        egui::ScrollArea::vertical().id_salt("edit_scroll").auto_shrink([false, false]).max_height(height - 24.0).show(ui, |ui| {
-                            let mut segs = live::split(&ed.text);
-                            let count = segs.len();
-                            let is_text: Vec<bool> = segs.iter().map(|s| matches!(s, live::Seg::Text(_))).collect();
-                            let mut changed = false;
-                            let mut remove = None;
-                            for i in 0..count {
-                                match &mut segs[i] {
-                                    live::Seg::Text(s) => {
-                                        let id = seg_id(i);
-                                        let want = match ed.want_focus {
-                                            Some((w, pos)) if w == i || (w == usize::MAX && i == count - 1) => Some(pos),
-                                            _ => None,
-                                        };
-                                        if let Some(pos) = want {
-                                            focus_at(ctx, id, s, pos);
-                                            ed.want_focus = None;
-                                        }
-                                        // Marks show on the lines the cursor or selection touches.
-                                        let reveal = egui::TextEdit::load_state(ctx, id).and_then(|state| state.cursor.char_range()).map(|r| {
-                                            let (a, b) = (usize::from(r.primary.index), usize::from(r.secondary.index));
-                                            (a.min(b), a.max(b))
-                                        });
-                                        let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
-                                            let job = live::layout(text.as_str(), reveal, marks, &st, wrap);
-                                            ui.fonts_mut(|f| f.layout_job(job))
-                                        };
-                                        let last = i == count - 1;
-                                        let resp = ui.add(
-                                            egui::TextEdit::multiline(s)
-                                                .id(id)
-                                                .frame(egui::Frame::NONE)
-                                                .hint_text(if count == 1 { "What's on your mind?" } else { "" })
-                                                .desired_width(f32::INFINITY)
-                                                .desired_rows(if last { 8 } else { 1 })
-                                                .layouter(&mut layouter),
-                                        );
-                                        changed |= resp.changed();
-                                        if resp.has_focus() {
-                                            ed.focus = i;
-                                            // Let the arrow keys travel past pictures into the next text block.
-                                            let (down, up) = ctx.input(|inp| (inp.key_pressed(egui::Key::ArrowDown), inp.key_pressed(egui::Key::ArrowUp)));
-                                            if down || up {
-                                                let cursor = egui::TextEdit::load_state(ctx, id)
-                                                    .and_then(|state| state.cursor.char_range())
-                                                    .map_or(0, |r| usize::from(r.primary.index));
-                                                let first_line = s.chars().take_while(|c| *c != '\n').count();
-                                                if down && cursor >= s.chars().count() {
-                                                    if let Some(j) = (i + 1..count).find(|&j| is_text[j]) {
-                                                        ed.want_focus = Some((j, 0));
-                                                    }
-                                                }
-                                                if up && cursor <= first_line {
-                                                    if let Some(j) = (0..i).rev().find(|&j| is_text[j]) {
-                                                        ed.want_focus = Some((j, usize::MAX));
-                                                        ctx.request_repaint();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    live::Seg::Image { id, alt, .. } => {
-                                        ui.add_space(4.0);
-                                        let src = format!("{}{id}", markdown::IMAGE_SCHEME);
-                                        markdown::show_image(ui, media, &data.images, &src, alt, p.ink);
-                                        let del = egui::Button::new(RichText::new("Remove picture").small().color(Color32::WHITE)).fill(RED);
-                                        if ui.add(del).clicked() {
-                                            remove = Some(i);
-                                        }
-                                        ui.add_space(4.0);
-                                    }
-                                }
-                            }
-                            if let Some(i) = remove {
-                                // Cursor goes to where the two text blocks around the picture meet.
-                                let join_at = match &segs[i - 1] {
-                                    live::Seg::Text(t) => t.chars().count(),
-                                    _ => 0,
-                                };
-                                segs.remove(i);
-                                ed.want_focus = Some((i - 1, join_at));
-                                ctx.request_repaint();
-                                changed = true;
-                            }
-                            if changed {
-                                ed.text = live::join(&segs);
-                            }
-                        });
-                    });
-                    };
-                    page(ui);
-
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(!ed.text.trim().is_empty(), egui::Button::new("Save")).clicked() {
-                            save_it = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            cancel = true;
-                        }
-                        ui.add_space(12.0);
-                        let draft = markdown::word_count(&ed.text);
-                        ui.label(RichText::new(format!("{draft} {}", if draft == 1 { "word" } else { "words" })).color(p.muted));
-                        let goal = data.settings.daily_word_goal as usize;
-                        if goal > 0 {
-                            // Progress for the whole day: this draft plus the day's other entries.
-                            let day = key(ed.date);
-                            let others: usize = data
-                                .entries
-                                .iter()
-                                .filter(|e| e.date == day && Some(e.id) != ed.id && !e.generated)
-                                .map(|e| markdown::word_count(&e.text))
-                                .sum();
-                            let total = others + draft;
-                            let done = total >= goal;
-                            ui.add(
-                                egui::ProgressBar::new((total as f32 / goal as f32).min(1.0))
-                                    .text(RichText::new(format!("day: {total} / {goal}{}", if done { "  ✓" } else { "" })).color(Color32::WHITE))
-                                    .fill(if done { Color32::from_rgb(22, 163, 74) } else { blue() })
-                                    .desired_width(210.0),
-                            );
-                        }
-                    });
-                });
-            });
-
-        if ask_draft {
-            self.ai_draft();
-        }
-        if ask_question {
-            self.ai_reflection(None);
-        }
-        if let Some(name) = chosen_template {
-            self.apply_template(&name);
-        }
-        if open_templates {
-            self.templates.open = true;
-        }
-        if persist_settings {
-            self.persist();
-        }
-        if save_it {
-            let ed = self.editor.take().unwrap();
-            let text = ed.text.trim().to_string();
-            let added_at = format!("{} {:02}:{:02}:{:02}", key(ed.date), ed.hour, ed.minute, ed.second);
-            match ed.id {
-                Some(id) => {
-                    if let Some(e) = self.data.entries.iter_mut().find(|e| e.id == id) {
-                        e.text = text;
-                        e.category = ed.category;
-                        e.date = key(ed.date);
-                        e.added_at = added_at;
-                        e.mood = ed.mood;
-                        e.pinned = ed.pinned;
-                        e.sensitive = ed.sensitive;
-                        e.attachments = ed.attachments;
-                        e.ai = ed.ai;
-                    }
-                }
-                None => {
-                    let id = self.data.entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-                    self.data.entries.push(Entry { id, date: key(ed.date), added_at, category: ed.category, text, mood: ed.mood, pinned: ed.pinned, sensitive: ed.sensitive, attachments: ed.attachments, ai: ed.ai, ..Default::default() });
-                }
-            }
-            self.selected = ed.date;
-            self.month = ed.date.with_day(1).unwrap();
-            self.editor_msg.clear();
-            self.persist();
-        } else if cancel {
-            self.editor = None;
-            self.editor_msg.clear();
-
-        }
-    }
-
-
     fn categories_window(&mut self, ctx: &egui::Context) {
         let p = palette(ctx);
         if !self.show_categories {
@@ -2602,7 +2393,7 @@ clear_open_files(); // leftovers from opening attachments last time
 
                         // Delete sits at the right edge; the name field takes the space in between.
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let del = egui::Button::new(RichText::new("Delete").color(Color32::WHITE)).fill(RED);
+                            let del = egui::Button::new(RichText::new("Delete").color(theme::BG)).fill(RED);
                             if ui.add_enabled(can_delete, del).clicked() {
                                 remove = Some(i);
                             }
@@ -2688,73 +2479,79 @@ clear_open_files(); // leftovers from opening attachments last time
     }
 }
 
-fn make_visuals(dark: bool) -> egui::Visuals {
+fn make_visuals() -> egui::Visuals {
     let t = theme::shades();
-    let mut v = if dark { egui::Visuals::dark() } else { egui::Visuals::light() };
-    let (page, window, stroke) = if dark {
-        (t.dark_page, t.dark_panel, Color32::from_rgb(148, 163, 184))
-    } else {
-        (t.light_page, Color32::WHITE, Color32::from_rgb(100, 116, 139))
-    };
-    v.panel_fill = page;
-    v.window_fill = window;
-    v.window_corner_radius = 0.into();
-    v.window_stroke = Stroke::new(1.0, stroke);
-    v.window_shadow = popup_shadow(dark);
-    v.extreme_bg_color = if dark { t.dark_page } else { Color32::WHITE };
-    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+    let mut v = egui::Visuals::dark();
+    v.panel_fill = theme::BG;
+    v.window_fill = theme::PANEL;
+    v.window_corner_radius = 14.into();
+    v.window_stroke = Stroke::new(1.0, theme::BORDER);
+    v.window_shadow = popup_shadow(true);
+    v.extreme_bg_color = theme::BG;
+    v.faint_bg_color = theme::SURFACE;
+    v.hyperlink_color = t.accent;
+    v.widgets.noninteractive.bg_fill = theme::PANEL;
+    v.widgets.noninteractive.weak_bg_fill = theme::PANEL;
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, theme::BORDER_SOFT);
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, theme::TEXT);
+    v.widgets.noninteractive.corner_radius = 8.into();
+    // Buttons are dark with a border; the accent is kept for the main action on a screen.
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
         w.corner_radius = 8.into();
-        w.fg_stroke = Stroke::new(1.0, Color32::WHITE);
     }
-    v.widgets.inactive.weak_bg_fill = blue();
-    v.widgets.inactive.bg_fill = blue();
-    v.widgets.hovered.weak_bg_fill = blue_hover();
-    v.widgets.hovered.bg_fill = blue_hover();
-    v.widgets.active.weak_bg_fill = blue_hover();
-    v.widgets.active.bg_fill = blue_hover();
-    v.selection.bg_fill = if dark { t.dark_selection } else { t.light_selection };
+    v.widgets.inactive.weak_bg_fill = theme::PANEL;
+    v.widgets.inactive.bg_fill = theme::PANEL;
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0, theme::BORDER);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, theme::TEXT);
+    v.widgets.hovered.weak_bg_fill = theme::NAV_ACTIVE;
+    v.widgets.hovered.bg_fill = theme::NAV_ACTIVE;
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, theme::TEXT_3);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0, theme::TEXT);
+    v.widgets.active.weak_bg_fill = theme::NAV_ACTIVE;
+    v.widgets.active.bg_fill = theme::NAV_ACTIVE;
+    v.widgets.active.bg_stroke = Stroke::new(1.0, t.accent);
+    v.widgets.active.fg_stroke = Stroke::new(1.0, theme::TEXT);
+    v.widgets.open.weak_bg_fill = theme::NAV_ACTIVE;
+    v.widgets.open.bg_fill = theme::NAV_ACTIVE;
+    v.widgets.open.bg_stroke = Stroke::new(1.0, theme::BORDER);
+    v.selection.bg_fill = t.accent_soft;
+    v.selection.stroke = Stroke::new(1.0, t.accent);
     v
 }
 
-/// Use Segoe UI (with a real bold) when it is installed; otherwise fall back to egui's fonts.
+/// The fonts (Hanken Grotesk and Newsreader, bundled).
 fn setup_fonts(ctx: &egui::Context) {
-    use egui::{FontData, FontFamily};
-    let mut fonts = egui::FontDefinitions::default();
-    let dir = std::env::var("WINDIR").unwrap_or_else(|_| "C:/Windows".into());
-    let read = |file: &str| std::fs::read(std::path::Path::new(&dir).join("Fonts").join(file)).ok();
-
-    if let Some(bytes) = read("segoeui.ttf") {
-        fonts.font_data.insert("segoe".into(), std::sync::Arc::new(FontData::from_owned(bytes)));
-        fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "segoe".into());
-    }
-    let mut bold = Vec::new();
-    if let Some(bytes) = read("segoeuib.ttf") {
-        fonts.font_data.insert("segoe-bold".into(), std::sync::Arc::new(FontData::from_owned(bytes)));
-        bold.push("segoe-bold".to_string());
-    }
-    bold.extend(fonts.families[&FontFamily::Proportional].clone());
-    fonts.families.insert(markdown::bold_family(), bold);
-    ctx.set_fonts(fonts);
+    fonts::install(ctx);
 }
 
-/// Use the current colour theme everywhere (call after `theme::set_accent`).
+/// Use the current accent colour everywhere (call after `theme::set_accent`).
 fn apply_theme(ctx: &egui::Context) {
-    ctx.set_visuals_of(egui::Theme::Light, make_visuals(false));
-    ctx.set_visuals_of(egui::Theme::Dark, make_visuals(true));
+    ctx.set_visuals_of(egui::Theme::Light, make_visuals());
+    ctx.set_visuals_of(egui::Theme::Dark, make_visuals());
 }
 
 fn setup_style(ctx: &egui::Context) {
     setup_fonts(ctx);
-    // Follow the system light/dark setting.
+    // Tideline Journal is dark-only.
     ctx.options_mut(|o| {
-        o.theme_preference = egui::ThemePreference::System;
+        o.theme_preference = egui::ThemePreference::Dark;
         o.zoom_with_keyboard = false; // the app has its own, saved, text size
     });
     apply_theme(ctx);
     ctx.global_style_mut(|s| {
-        s.spacing.button_padding = vec2(12.0, 6.0);
-        for font in s.text_styles.values_mut() {
-            font.size *= 1.25;
+        use egui::{FontFamily, TextStyle};
+        s.spacing.button_padding = vec2(14.0, 8.0);
+        s.spacing.interact_size.y = 34.0;
+        s.spacing.item_spacing = vec2(8.0, 8.0);
+        let sizes = [
+            (TextStyle::Small, FontId::new(12.5, FontFamily::Proportional)),
+            (TextStyle::Body, FontId::new(15.0, FontFamily::Proportional)),
+            (TextStyle::Button, FontId::new(14.5, FontFamily::Proportional)),
+            (TextStyle::Heading, FontId::new(22.0, fonts::serif_medium())),
+            (TextStyle::Monospace, FontId::new(14.0, FontFamily::Monospace)),
+        ];
+        for (style, font) in sizes {
+            s.text_styles.insert(style, font);
         }
     });
 }
@@ -2798,7 +2595,7 @@ impl eframe::App for DiaryApp {
                 egui::CentralPanel::default().frame(egui::Frame::new().fill(p.page_bg)).show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space((ui.available_height() / 2.0 - 50.0).max(20.0));
-                        ui.label(RichText::new("My Diary").size(34.0).strong().color(p.title));
+                        ui.label(RichText::new("Tideline Journal").font(FontId::new(36.0, fonts::serif_display())).color(p.title));
                         ui.label(RichText::new("Hidden while this window is in the background. Click here to show it again.").color(p.muted));
                     });
                 });
@@ -2807,29 +2604,36 @@ impl eframe::App for DiaryApp {
         }
         self.handle_shortcuts(&ctx);
         self.ai_poll(&ctx);
+        // The title bar is on every screen, the lock screen included.
+        egui::Panel::top("titlebar")
+            .exact_size(44.0)
+            .show_separator_line(false)
+            .frame(egui::Frame::new().fill(theme::BG_TITLEBAR))
+            .show(ui, |ui| self.title_bar(ui));
         if self.lock.is_some() {
-            egui::Panel::top("header")
-                .frame(egui::Frame::new().fill(p.header).inner_margin(egui::Margin::symmetric(14, 10)))
-                .show(ui, |ui| {
-                    ui.label(RichText::new("My Diary").size(24.0).strong().color(Color32::WHITE));
-                });
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(p.page_bg))
                 .show(ui, |ui| self.lock_screen(ui));
             return;
         }
-        egui::Panel::top("header")
-            .frame(egui::Frame::new().fill(p.header).inner_margin(egui::Margin::symmetric(14, 10)))
-            .show(ui, |ui| self.header(ui));
-        egui::Panel::right("day")
-            .default_size(330.0)
-            .frame(egui::Frame::new().fill(p.panel_bg).inner_margin(14))
-            .show(ui, |ui| self.day_panel(ui));
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(p.page_bg).inner_margin(10))
-            .show(ui, |ui| self.calendar(ui));
+        if self.editor.is_some() {
+            // Writing takes the whole window.
+            self.entry_view(ui);
+        } else {
+            egui::Panel::left("side")
+                .exact_size(236.0)
+                .frame(egui::Frame::new().fill(p.panel_bg).stroke(Stroke::new(1.0, p.border_soft)).inner_margin(egui::Margin::symmetric(16, 16)))
+                .show(ui, |ui| self.side_menu(ui));
+            egui::Panel::right("day")
+                .default_size(340.0)
+                .size_range(300.0..=460.0)
+                .frame(egui::Frame::new().fill(p.panel_bg).stroke(Stroke::new(1.0, p.border_soft)).inner_margin(egui::Margin::symmetric(24, 22)))
+                .show(ui, |ui| self.day_panel(ui));
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(p.page_bg).inner_margin(egui::Margin::symmetric(28, 24)))
+                .show(ui, |ui| self.calendar(ui));
+        }
 
-        self.entry_window(&ctx);
         self.categories_window(&ctx);
         self.password_window(&ctx);
         self.location_window(&ctx);
@@ -2848,19 +2652,24 @@ impl eframe::App for DiaryApp {
 }
 
 fn main() -> eframe::Result {
+    if demo::requested() {
+        demo::redirect_app_data();
+    }
     let icon = egui::IconData { rgba: icon::rgba(256), width: 256, height: 256 };
     // The window always opens at its normal size; "maximised" and "full screen" are applied on the
     // first frame (see `apply_start_mode`). Asking for them here is overridden by the initial size.
     let viewport = egui::ViewportBuilder::default()
         .with_icon(std::sync::Arc::new(icon))
+        .with_title("Tideline Journal")
+        .with_decorations(false)
         .with_inner_size([1280.0, 760.0])
         .with_min_inner_size([1200.0, 600.0]);
     let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native(
-        "Diary",
+        "Tideline Journal",
         options,
         Box::new(|cc| {
-            theme::set_accent(location::accent().unwrap_or(theme::DEFAULT));
+            theme::set_accent(theme::starting_accent(location::accent()));
             setup_style(&cc.egui_ctx);
             Ok(Box::new(DiaryApp::new()))
         }),
@@ -2876,31 +2685,31 @@ fn popup_frame(p: &Palette, dark: bool) -> egui::Frame {
     egui::Frame::new()
         .fill(p.panel_bg)
         .stroke(Stroke::new(1.0, p.cell_border))
+        .corner_radius(14)
         .shadow(popup_shadow(dark))
 }
 
-/// Blue title band matching the main window's header. Returns true when the close button is clicked.
+/// Title row of a pop-up window, with a hairline under it. Returns true when the close button is clicked.
 fn popup_header(ui: &mut egui::Ui, p: &Palette, title: &str) -> bool {
     let mut close = false;
-    egui::Frame::new().fill(p.header).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
+    egui::Frame::new().inner_margin(egui::Margin { left: 22, right: 14, top: 14, bottom: 12 }).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new(title).size(22.0).strong().color(Color32::WHITE));
+            ui.label(RichText::new(title).font(FontId::new(25.0, fonts::serif_medium())).color(p.title));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Painted cross: the "✕" glyph isn't in egui's default font and shows up as a box.
                 let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
-                let fill = if resp.hovered() { RED } else { blue() };
-                ui.painter().rect_filled(rect, 8.0, fill);
-                let s = Stroke::new(2.5, Color32::WHITE);
-                let r = rect.shrink(11.0);
-                ui.painter().line_segment([r.left_top(), r.right_bottom()], s);
-                ui.painter().line_segment([r.left_bottom(), r.right_top()], s);
-                if resp.on_hover_text("Close").clicked() {
+                if resp.hovered() {
+                    ui.painter().rect_filled(rect, 8.0, theme::NAV_ACTIVE);
+                }
+                kit::paint(ui.painter(), rect.center(), 18.0, if resp.hovered() { theme::TEXT } else { theme::TEXT_2 }, kit::Icon::Close, false);
+                if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Close").clicked() {
                     close = true;
                 }
             });
         });
     });
+    let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().rect_filled(line, 0.0, p.border_soft);
     close
 }
 
@@ -3036,7 +2845,10 @@ mod tests {
             minute: 30,
             second: 0,
             category: "Personal".into(),
+            title: String::new(),
             text: text.into(),
+            baseline: String::new(),
+            discard_arm: false,
             mood: None,
             pinned: false,
             sensitive: false,
@@ -3084,7 +2896,7 @@ mod tests {
     fn live_layout_works_inside_a_text_edit() {
         let ctx = egui::Context::default();
         setup_style(&ctx);
-        let st = live::LiveStyle { ink: Color32::BLACK, muted: Color32::GRAY, accent: Color32::BLUE, size: 16.0 };
+        let st = live::LiveStyle { ink: Color32::BLACK, muted: Color32::GRAY, accent: Color32::BLUE, size: 16.0, serif: false, line_height: 1.0 };
         let mut text = "# Title **b** `c`\n- item *i*\n\nplain".to_string();
         for _ in 0..3 {
             let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
@@ -3660,7 +3472,7 @@ mod tests {
             for _ in 0..2 {
                 let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
                     app.templates_window(ui.ctx());
-                    app.entry_window(ui.ctx());
+                    app.entry_view(ui);
                 });
                 out.textures_delta.clear();
             }
@@ -3699,7 +3511,7 @@ mod tests {
         let mut app = app_with_entries();
         let ctx = egui::Context::default();
         setup_style(&ctx);
-        let mut frame = |app: &mut DiaryApp| {
+        let frame = |app: &mut DiaryApp| {
             for _ in 0..2 {
                 let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.day_panel(ui));
                 out.textures_delta.clear();
@@ -3770,29 +3582,120 @@ mod tests {
     }
 
     #[test]
+    fn the_writing_view_saves_the_title_with_the_text_and_splits_it_again_on_edit() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        app.new_entry(d(2026, 10, 9));
+        {
+            let ed = app.editor.as_mut().unwrap();
+            ed.title = "A title".into();
+            ed.text = "Some body".into();
+            assert!(ed.has_content() && ed.changed());
+        }
+        for _ in 0..3 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.entry_view(ui));
+            out.textures_delta.clear();
+        }
+        app.save_editor();
+        assert!(app.editor.is_none());
+        let saved = app.data.entries.last().unwrap().clone();
+        assert_eq!(saved.text, "# A title\n\nSome body");
+
+        // Editing it again shows the title and the text separately, unchanged until you type.
+        app.start_edit(saved.id);
+        let ed = app.editor.as_ref().unwrap();
+        assert_eq!((ed.title.as_str(), ed.text.as_str()), ("A title", "Some body"));
+        assert!(!ed.changed());
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.entry_view(ui));
+            out.textures_delta.clear();
+        }
+        // An entry without a title keeps all its text as the body.
+        app.editor = None;
+        app.start_edit(2);
+        assert_eq!(app.editor.as_ref().unwrap().title, "");
+        assert_eq!(app.editor.as_ref().unwrap().text, "Coffee with Sam");
+    }
+
+    #[test]
+    fn discard_leaves_at_once_when_nothing_changed_and_asks_once_otherwise() {
+        let mut app = app_with_entries();
+        app.new_entry(d(2026, 10, 9));
+        assert!(app.editor.as_mut().unwrap().press_discard(), "an empty page goes straight away");
+
+        app.new_entry(d(2026, 10, 9));
+        let ed = app.editor.as_mut().unwrap();
+        ed.text = "half a thought".into();
+        assert!(!ed.press_discard(), "the first press only arms it");
+        assert!(ed.discard_arm);
+        assert!(ed.press_discard(), "the second press discards");
+
+        // Changing an existing entry counts as a change; opening it does not.
+        app.start_edit(1);
+        let ed = app.editor.as_mut().unwrap();
+        assert!(!ed.changed());
+        ed.title = "New heading".into();
+        assert!(ed.changed());
+    }
+
+    #[test]
+    fn the_new_chrome_renders_and_a_blank_day_says_so() {
+        let mut app = app_with_entries();
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        app.data.entries.push(Entry { id: 9, date: "2026-10-09".into(), added_at: "2026-10-09 22:00:00".into(), category: "Work".into(), text: "# Secret\n\nhidden".into(), sensitive: true, ..Default::default() });
+        for day in [d(2026, 10, 9), d(2026, 10, 20)] {
+            app.selected = day;
+            for view in [CalView::Month, CalView::Week, CalView::Day, CalView::Year, CalView::Photos] {
+                app.view = view;
+                for _ in 0..2 {
+                    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                        egui::Panel::top("t").show(ui, |ui| app.title_bar(ui));
+                        egui::Panel::left("l").show(ui, |ui| app.side_menu(ui));
+                        egui::Panel::right("r").show(ui, |ui| app.day_panel(ui));
+                        egui::CentralPanel::default().show(ui, |ui| app.calendar(ui));
+                    });
+                    out.textures_delta.clear();
+                }
+            }
+        }
+        // The same with a search showing instead of the day.
+        app.search = "coffee".into();
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                egui::Panel::top("t").show(ui, |ui| app.title_bar(ui));
+                egui::Panel::right("r").show(ui, |ui| app.day_panel(ui));
+            });
+            out.textures_delta.clear();
+        }
+    }
+
+    #[test]
     fn choosing_a_colour_theme_recolours_the_app_and_is_remembered() {
         let _turn = location::CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut app = app_with_entries();
         let ctx = egui::Context::default();
         setup_style(&ctx);
-        let before = palette(&ctx).header;
-        let btn_before = blue();
+        let before = palette(&ctx).accent;
+        let btn_before = accent_fill();
 
         let rose = theme::PRESETS[3].1;
         app.set_colour_theme(&ctx, rose);
-        assert_ne!(palette(&ctx).header, before, "the header changes colour");
-        assert_ne!(blue(), btn_before, "buttons change colour");
-        assert_eq!(ctx.global_style().visuals.widgets.inactive.bg_fill, blue(), "widget visuals follow too");
+        assert_ne!(palette(&ctx).accent, before, "the accent changes colour");
+        assert_ne!(accent_fill(), btn_before, "buttons change colour");
+        assert_eq!(ctx.global_style().visuals.selection.stroke.color, accent_fill(), "selection and focus colours follow too");
         assert_eq!(location::accent(), Some(rose), "remembered for the lock screen next time");
-        assert_ne!(heat_color(3, false), heat_color(3, true));
+        assert_eq!(heat_color(4, true), accent_fill(), "the heat-map uses the accent");
+        assert_eq!(heat_color(0, true), theme::CELL);
 
         // Choosing the same one again changes nothing; going back to the original clears the saved colour.
         app.set_colour_theme(&ctx, rose);
         assert!(app.status.is_empty() || !app.status.contains("failed"));
         app.set_colour_theme(&ctx, theme::DEFAULT);
         assert_eq!(location::accent(), None);
-        assert_eq!(palette(&ctx).header, before);
-        assert_eq!(blue(), btn_before);
+        assert_eq!(palette(&ctx).accent, before);
+        assert_eq!(accent_fill(), btn_before);
     }
 
     #[test]
@@ -3895,23 +3798,6 @@ fn insert_image(ctx: &egui::Context, ed: &mut EditState, md: &str) {
     ed.want_focus = Some((idx + 2, 0));
 }
 
-/// A gear: eight teeth around a disc with a hole in the middle.
-fn paint_cog(painter: &egui::Painter, center: egui::Pos2, r: f32, color: Color32, hole: Color32) {
-    const TEETH: usize = 8;
-    for k in 0..TEETH {
-        let (s, c) = (k as f32 * std::f32::consts::TAU / TEETH as f32).sin_cos();
-        let (dir, side) = (vec2(c, s), vec2(-s, c) * (r * 0.22));
-        let (inner, outer) = (center + dir * (r * 0.6), center + dir * r);
-        painter.add(egui::Shape::convex_polygon(
-            vec![inner + side, outer + side, outer - side, inner - side],
-            color,
-            Stroke::NONE,
-        ));
-    }
-    painter.circle_filled(center, r * 0.74, color);
-    painter.circle_filled(center, r * 0.32, hole);
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum CalView {
     Month,
@@ -3961,7 +3847,24 @@ fn moved_timestamp(added_at: &str, date: NaiveDate, hour: Option<u32>) -> String
     format!("{} {:02}:{:02}:{:02}", key(date), hour.unwrap_or(h).min(23), m, s)
 }
 
-/// One entry on the calendar: a coloured pill that can be clicked, double-clicked (edit) or dragged.
+/// Cut `text` with an ellipsis so it fits in `max_w`.
+fn elide(painter: &egui::Painter, text: &str, font: &FontId, max_w: f32) -> String {
+    let width = |s: &str| painter.layout_no_wrap(s.to_string(), font.clone(), Color32::WHITE).size().x;
+    if width(text) <= max_w {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let (mut lo, mut hi) = (0usize, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        let s: String = chars[..mid].iter().collect::<String>() + "…";
+        if width(&s) <= max_w { lo = mid } else { hi = mid - 1 }
+    }
+    chars[..lo].iter().collect::<String>().trim_end().to_string() + "…"
+}
+
+/// One entry on the calendar: a small tinted chip (category dot, time, title) that can be clicked,
+/// double-clicked (edit) or dragged to another day.
 #[allow(clippy::too_many_arguments)]
 fn pill(
     ui: &mut egui::Ui,
@@ -3977,44 +3880,43 @@ fn pill(
     let resp = ui.interact(rect, ui.id().with(("pill", e.id)), Sense::click_and_drag());
     let being_dragged = *drag == Some(e.id);
     let label = format!("{} {}", e.added_at.get(11..16).unwrap_or(""), entry_label(e));
-    let fg = text_on(c);
+    let font = FontId::proportional(size);
+    let base = theme::rgb_of(theme::CELL);
+    let tinted = |a: f32| {
+        let m = theme::mix(theme::rgb_of(c), base, a);
+        Color32::from_rgb(m[0], m[1], m[2])
+    };
 
-    painter.rect_filled(rect, 9.0, if being_dragged { c.gamma_multiply(0.3) } else { c });
-    if resp.hovered() && !being_dragged {
-        painter.rect_stroke(rect, 9.0, Stroke::new(1.5, fg), egui::StrokeKind::Inside);
+    let hovered = resp.hovered() && !being_dragged;
+    painter.rect_filled(rect, 7.0, if being_dragged { tinted(0.05) } else { tinted(if hovered { 0.22 } else { 0.13 }) });
+    if hovered {
+        painter.rect_stroke(rect, 7.0, Stroke::new(1.0, c.gamma_multiply(0.7)), egui::StrokeKind::Inside);
     }
-    let text_area = egui::Rect::from_min_max(rect.min + vec2(4.0, 0.0), rect.max - vec2(if e.pinned { 24.0 } else { 4.0 }, 0.0));
-    painter.with_clip_rect(text_area).text(
-        egui::pos2(rect.min.x + 7.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        &label,
-        FontId::proportional(size),
-        if being_dragged { fg.gamma_multiply(0.5) } else { fg },
-    );
+    painter.circle_filled(egui::pos2(rect.min.x + 11.0, rect.center().y), 3.5, if being_dragged { c.gamma_multiply(0.4) } else { c });
+    let right_pad = if e.pinned { 24.0 } else { 8.0 };
+    let max_w = rect.width() - 20.0 - right_pad;
+    let text = elide(painter, &label, &font, max_w);
+    painter.text(egui::pos2(rect.min.x + 20.0, rect.center().y), Align2::LEFT_CENTER, text, font.clone(), if being_dragged { theme::TEXT_3 } else { theme::TEXT_2 });
     if resp.hovered() || being_dragged {
         ui.ctx().set_cursor_icon(if being_dragged { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
     }
 
     if e.pinned {
-        paint_star(painter, egui::pos2(rect.max.x - 13.0, rect.center().y), 6.0, fg, true);
+        kit::paint(painter, egui::pos2(rect.max.x - 13.0, rect.center().y), 12.0, theme::TODAY, kit::Icon::Star, true);
     }
     if resp.drag_started() {
         *drag = Some(e.id);
     }
     if resp.dragged() && *drag == Some(e.id) {
-        // A copy of the pill follows the pointer.
+        // A copy of the chip follows the pointer.
         if let Some(pos) = ui.ctx().pointer_latest_pos() {
             let gp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drag_ghost")));
             let r = egui::Rect::from_min_size(pos + vec2(12.0, 6.0), vec2(rect.width().min(300.0), rect.height()));
-            gp.rect_filled(r.translate(vec2(2.0, 3.0)), 9.0, Color32::from_black_alpha(80));
-            gp.rect_filled(r, 9.0, c);
-            gp.with_clip_rect(r.shrink2(vec2(4.0, 0.0))).text(
-                egui::pos2(r.min.x + 7.0, r.center().y),
-                Align2::LEFT_CENTER,
-                &label,
-                FontId::proportional(size),
-                fg,
-            );
+            gp.rect_filled(r.translate(vec2(2.0, 3.0)), 7.0, Color32::from_black_alpha(110));
+            gp.rect(r, 7.0, theme::SURFACE, Stroke::new(1.0, c), egui::StrokeKind::Inside);
+            gp.circle_filled(egui::pos2(r.min.x + 11.0, r.center().y), 3.5, c);
+            let text = elide(&gp, &label, &font, r.width() - 30.0);
+            gp.text(egui::pos2(r.min.x + 22.0, r.center().y), Align2::LEFT_CENTER, text, font.clone(), theme::TEXT);
         }
     }
     if resp.drag_stopped() && drag.take() == Some(e.id) {
@@ -4039,29 +3941,27 @@ fn current_lock_mode() -> LockMode {
     }
 }
 
-const MOOD_LABELS: [&str; 5] = ["Really sad", "Sad", "Okay", "Happy", "Really happy"];
+const MOOD_LABELS: [&str; 5] = theme::MOOD_NAMES;
 
 /// Red (1) through amber to green (5); fractional values blend.
 fn mood_color(value: f32) -> Color32 {
-    const RAMP: [[f32; 3]; 5] = [[239.0, 68.0, 68.0], [249.0, 115.0, 22.0], [234.0, 179.0, 8.0], [132.0, 204.0, 22.0], [34.0, 197.0, 94.0]];
     let v = (value.clamp(1.0, 5.0) - 1.0).min(3.999);
     let (i, t) = (v.floor() as usize, v.fract());
-    let c = |k: usize| RAMP[i][k] + (RAMP[i + 1][k] - RAMP[i][k]) * t;
-    Color32::from_rgb(c(0) as u8, c(1) as u8, c(2) as u8)
+    let (a, b) = (theme::rgb_of(theme::MOODS[i]), theme::rgb_of(theme::MOODS[i + 1]));
+    let m = theme::mix(b, a, t);
+    Color32::from_rgb(m[0], m[1], m[2])
 }
 
 /// A small coloured circle holding the mood number.
 fn mood_badge(ui: &mut egui::Ui, mood: u8) {
     let (rect, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-    faces::paint(ui.painter(), ui.ctx(), rect, mood, 1.0);
-    resp.on_hover_text(format!("Mood: {}", MOOD_LABELS[usize::from(mood.clamp(1, 5)) - 1]));
+    kit::paint_face(ui.painter(), rect.center(), 20.0, theme::MOODS[usize::from(mood.clamp(1, 5)) - 1], mood);
+    resp.on_hover_text(format!("Mood: {}", theme::MOOD_NAMES[usize::from(mood.clamp(1, 5)) - 1]));
 }
 
 /// Heat-map shade for a level from 0 (nothing written) to 4 (a lot).
-fn heat_color(level: u8, dark: bool) -> Color32 {
-    let t = theme::shades();
-    let ramp = if dark { t.heat_dark } else { t.heat_light };
-    ramp[usize::from(level.min(4))]
+fn heat_color(level: u8, _dark: bool) -> Color32 {
+    theme::shades().heat[usize::from(level.min(4))]
 }
 
 /// Daily mood dots with a 7-day average line, over one year.
@@ -4155,30 +4055,6 @@ fn open_files_dir() -> std::path::PathBuf {
 /// Delete the temporary copies made by "Open".
 fn clear_open_files() {
     std::fs::remove_dir_all(open_files_dir()).ok();
-}
-
-/// A five-pointed star: filled, or just an outline.
-fn paint_star(painter: &egui::Painter, center: egui::Pos2, r: f32, color: Color32, filled: bool) {
-    let points: Vec<egui::Pos2> = (0..10)
-        .map(|i| {
-            let angle = std::f32::consts::FRAC_PI_2 * -1.0 + i as f32 * std::f32::consts::PI / 5.0;
-            let radius = if i % 2 == 0 { r } else { r * 0.42 };
-            center + vec2(angle.cos(), angle.sin()) * radius
-        })
-        .collect();
-    if filled {
-        let gold = Color32::from_rgb(250, 190, 20);
-        let mut mesh = egui::Mesh::default();
-        mesh.colored_vertex(center, gold);
-        for p in &points {
-            mesh.colored_vertex(*p, gold);
-        }
-        for i in 0..10u32 {
-            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % 10);
-        }
-        painter.add(egui::Shape::mesh(mesh));
-    }
-    painter.add(egui::Shape::closed_line(points, Stroke::new(1.4, if filled { Color32::from_rgb(150, 100, 0) } else { color })));
 }
 
 /// What to show of an entry in lists and on the calendar: its first line, or a placeholder for

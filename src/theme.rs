@@ -1,58 +1,94 @@
-//! Colour themes. One accent colour drives every tinted part of the interface (the header,
-//! buttons, highlights, the heat-map, dark mode), so a theme is just a single colour. All the
-//! shades are worked out from it here, and a colour that would make white button text hard to
-//! read is automatically darkened, so any choice stays usable.
+//! Tideline Journal's colours. The dark surfaces, text and mood colours are fixed by the design spec
+//! (`TIDELINE_JOURNAL_DESIGN.md`). The one thing you can change is the accent colour (buttons, the
+//! selected day, focus, the prompt card); every shade that depends on it is worked out here and
+//! adjusted so it stays readable on the dark background, whatever colour is chosen.
 
 use eframe::egui::Color32;
 
 pub type Rgb = [u8; 3];
 
-/// The original blue.
-pub const DEFAULT: Rgb = [37, 99, 235];
+const fn c(r: u8, g: u8, b: u8) -> Color32 {
+    Color32::from_rgb(r, g, b)
+}
 
-/// Ready-made themes: name and accent colour.
+// ---- fixed tokens ------------------------------------------------------------------------------
+
+pub const BG: Color32 = c(0x11, 0x14, 0x18);
+pub const BG_TITLEBAR: Color32 = c(0x0D, 0x10, 0x13);
+pub const PANEL: Color32 = c(0x15, 0x19, 0x1E);
+pub const SURFACE: Color32 = c(0x1C, 0x21, 0x27);
+pub const CELL: Color32 = c(0x1A, 0x1E, 0x24);
+pub const BORDER: Color32 = c(0x2A, 0x30, 0x39);
+pub const BORDER_SOFT: Color32 = c(0x22, 0x27, 0x2E);
+pub const TEXT: Color32 = c(0xEC, 0xE7, 0xDD);
+pub const TEXT_2: Color32 = c(0xA9, 0xAF, 0xB8);
+pub const TEXT_3: Color32 = c(0x7E, 0x85, 0x90);
+/// Today's date circle and the pinned star.
+pub const TODAY: Color32 = c(0xE7, 0xB1, 0x5A);
+/// The active item in the side menu, and the selected segment of a switch.
+pub const NAV_ACTIVE: Color32 = c(0x23, 0x2A, 0x33);
+/// The writing card on the new-entry screen.
+pub const WRITING_CARD: Color32 = c(0x17, 0x1B, 0x20);
+pub const DANGER: Color32 = c(0xE5, 0x73, 0x5F);
+
+/// Awful, Low, Okay, Good, Great.
+pub const MOODS: [Color32; 5] = [c(0xE5, 0x73, 0x5F), c(0xE9, 0x9A, 0x5B), c(0xD9, 0xC2, 0x5E), c(0x8C, 0xC9, 0x7A), c(0x4F, 0xB3, 0xA5)];
+pub const MOOD_NAMES: [&str; 5] = ["Awful", "Low", "Okay", "Good", "Great"];
+
+/// Colours for the starter categories.
+pub const CATEGORY_COLOURS: [(&str, Rgb); 5] =
+    [("Personal", [0x7A, 0xA2, 0xF7]), ("Health", [0x6C, 0xC4, 0x97]), ("Work", [0xE7, 0xB1, 0x5A]), ("Ideas", [0xB3, 0x92, 0xF0]), ("Pink Stuff", [0xE5, 0x7B, 0xB8])];
+
+// ---- the accent --------------------------------------------------------------------------------
+
+/// Tideline Journal's own teal ("Tide").
+pub const DEFAULT: Rgb = [0x4F, 0xB3, 0xA5];
+
+/// Ready-made accents: name and colour.
 pub const PRESETS: [(&str, Rgb); 8] = [
-    ("Ocean", DEFAULT),
-    ("Indigo", [79, 70, 229]),
-    ("Plum", [147, 51, 234]),
-    ("Rose", [225, 29, 72]),
-    ("Ember", [234, 88, 12]),
-    ("Forest", [22, 163, 74]),
-    ("Teal", [13, 148, 136]),
-    ("Graphite", [71, 85, 105]),
+    ("Tide", DEFAULT),
+    ("Sky", [96, 165, 250]),
+    ("Violet", [167, 139, 250]),
+    ("Rose", [244, 114, 160]),
+    ("Lamp", [231, 177, 90]),
+    ("Ember", [251, 146, 60]),
+    ("Moss", [134, 203, 122]),
+    ("Slate", [148, 163, 184]),
 ];
 
-/// Every colour that depends on the theme, for both light and dark mode.
+/// Every colour that depends on the accent.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shades {
-    /// Buttons (white text on top) and, in light mode, the header.
-    pub button: Color32,
-    pub button_hover: Color32,
-    /// The "selected" look of a view button.
-    pub selected_button: Color32,
-    pub light_page: Color32,
-    pub light_tint: Color32,
-    pub light_tint_text: Color32,
-    pub light_weekend: Color32,
-    pub light_selection: Color32,
-    pub dark_page: Color32,
-    pub dark_panel: Color32,
-    pub dark_header: Color32,
-    pub dark_accent: Color32,
-    pub dark_tint_text: Color32,
-    pub dark_title: Color32,
-    pub dark_weekend: Color32,
-    pub dark_selection: Color32,
-    /// Year heat-map: nothing written (0) up to a lot (4).
-    pub heat_light: [Color32; 5],
-    pub heat_dark: [Color32; 5],
+    pub accent: Color32,
+    pub accent_hover: Color32,
+    /// Text on an accent-coloured button.
+    pub on_accent: Color32,
+    /// The faint accent wash behind selected text and selected things.
+    pub accent_soft: Color32,
+    pub prompt_bg: Color32,
+    pub prompt_border: Color32,
+    /// The year heat-map: nothing written (0) up to a lot (4).
+    pub heat: [Color32; 5],
+}
+
+/// The accent presets of the earlier, blue design. A saved choice from that list was made for the
+/// old look, so it is ignored and the Tide teal is used until a new one is picked.
+pub const LEGACY_PRESETS: [Rgb; 8] = [[37, 99, 235], [79, 70, 229], [147, 51, 234], [225, 29, 72], [234, 88, 12], [22, 163, 74], [13, 148, 136], [71, 85, 105]];
+
+pub fn is_legacy(accent: Rgb) -> bool {
+    LEGACY_PRESETS.contains(&accent)
+}
+
+/// The accent to start with: the saved one, unless it is missing or from the old design.
+pub fn starting_accent(saved: Option<Rgb>) -> Rgb {
+    saved.filter(|a| !is_legacy(*a)).unwrap_or(DEFAULT)
 }
 
 // ---- colour maths ------------------------------------------------------------------------------
 
 /// Hue (0..360), saturation and lightness (both 0..1).
-pub fn to_hsl(c: Rgb) -> (f32, f32, f32) {
-    let [r, g, b] = c.map(|v| f32::from(v) / 255.0);
+pub fn to_hsl(col: Rgb) -> (f32, f32, f32) {
+    let [r, g, b] = col.map(|v| f32::from(v) / 255.0);
     let (max, min) = (r.max(g).max(b), r.min(g).min(b));
     let l = (max + min) / 2.0;
     let d = max - min;
@@ -72,26 +108,26 @@ pub fn to_hsl(c: Rgb) -> (f32, f32, f32) {
 
 pub fn from_hsl(h: f32, s: f32, l: f32) -> Rgb {
     let (s, l) = (s.clamp(0.0, 1.0), l.clamp(0.0, 1.0));
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let x = c * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
-    let m = l - c / 2.0;
+    let chroma = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = chroma * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let m = l - chroma / 2.0;
     let (r, g, b) = match (h.rem_euclid(360.0) / 60.0) as u32 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
     };
     [r, g, b].map(|v| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8)
 }
 
-fn luminance(c: Rgb) -> f32 {
+pub fn luminance(col: Rgb) -> f32 {
     let lin = |v: u8| {
         let v = f32::from(v) / 255.0;
         if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
     };
-    0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
+    0.2126 * lin(col[0]) + 0.7152 * lin(col[1]) + 0.0722 * lin(col[2])
 }
 
 /// WCAG contrast ratio between two colours (1 to 21).
@@ -100,89 +136,58 @@ pub fn contrast(a: Rgb, b: Rgb) -> f32 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-fn color(c: Rgb) -> Color32 {
-    Color32::from_rgb(c[0], c[1], c[2])
+pub fn rgb_of(col: Color32) -> Rgb {
+    [col.r(), col.g(), col.b()]
 }
 
-/// Keep the colour's hue and saturation but make it dark enough for white text (and not so dark
-/// that it vanishes against dark mode).
-fn button_colour(accent: Rgb) -> Rgb {
-    let (h, s, l) = to_hsl(accent);
-    let mut l = l.clamp(0.24, 0.9);
-    let mut c = from_hsl(h, s, l);
-    while contrast(c, [255, 255, 255]) < 4.5 && l > 0.1 {
-        l -= 0.01;
-        c = from_hsl(h, s, l);
-    }
-    c
+fn color(col: Rgb) -> Color32 {
+    Color32::from_rgb(col[0], col[1], col[2])
 }
 
-/// Darken a colour (keeping its hue) until it reads on every one of the given backgrounds.
-fn readable_on(h: f32, s: f32, mut l: f32, backgrounds: &[Rgb], min: f32) -> Rgb {
-    let mut c = from_hsl(h, s, l);
-    while backgrounds.iter().any(|bg| contrast(c, *bg) < min) && l > 0.02 {
-        l -= 0.01;
-        c = from_hsl(h, s, l);
+/// `a` laid over `b` at `alpha` (0..1).
+pub fn mix(a: Rgb, b: Rgb, alpha: f32) -> Rgb {
+    let m = |i: usize| (f32::from(a[i]) * alpha + f32::from(b[i]) * (1.0 - alpha)).round() as u8;
+    [m(0), m(1), m(2)]
+}
+
+/// Make the accent light enough to read on the dark background, keeping its hue.
+fn readable_accent(accent: Rgb) -> Rgb {
+    let (h, s, mut l) = to_hsl(accent);
+    let mut col = accent;
+    // The lightest background it must stand out from is the selected-item grey.
+    while contrast(col, rgb_of(NAV_ACTIVE)) < 4.5 && l < 0.95 {
+        l += 0.01;
+        col = from_hsl(h, s, l);
     }
-    c
+    col
 }
 
 /// All the shades for an accent colour.
 pub fn derive(accent: Rgb) -> Shades {
-    let (h, s, _) = to_hsl(accent);
-    let button = button_colour(accent);
-    let (_, bs, bl) = to_hsl(button);
-    let tint = |s_scale: f32, l: f32| from_hsl(h, (s * s_scale).min(1.0), l);
-
-    let button_hover = from_hsl(h, bs, (bl - 0.06).max(0.1));
-    let dark_tint_text = tint(1.0, 0.87);
-    let mut dark_l = 0.33;
-    while contrast(dark_tint_text, tint(0.77, dark_l)) < 4.6 && dark_l > 0.05 {
-        dark_l -= 0.01;
+    let a = readable_accent(accent);
+    let (h, s, l) = to_hsl(a);
+    let hover = from_hsl(h, s, (l + 0.06).min(0.97));
+    let mut on = from_hsl(h, (s * 0.5).min(0.5), 0.09);
+    if contrast(a, on) < 4.5 {
+        on = [0, 0, 0];
     }
-    let dark_header = tint(0.77, dark_l);
-    let dark_panel = tint(0.40, 0.175);
-    let light_page = tint(1.2, 0.969);
-    let light_tint = tint(1.15, 0.927);
-    let light_tint_text = readable_on(h, (s * 0.85).min(1.0), 0.41, &[light_page, light_tint], 4.6);
-    let mut heat_light = [tint(0.20, 0.92), tint(1.15, 0.87), tint(1.15, 0.78), tint(1.0, 0.60), tint(1.0, 0.48)];
-    let mut heat_dark = [dark_panel, dark_header, tint(1.0, 0.54), tint(1.0, 0.68), tint(1.0, 0.87)];
-    // Each step must be clearly darker (light mode) / lighter (dark mode) than the one before.
-    for i in 1..5 {
-        let (mut l, step) = (to_hsl(heat_light[i]).2, 0.01);
-        while luminance(heat_light[i]) > luminance(heat_light[i - 1]) * 0.93 && l > 0.02 {
-            l -= step;
-            heat_light[i] = from_hsl(h, (s * 1.1).min(1.0), l);
-        }
-        let mut l = to_hsl(heat_dark[i]).2;
-        while luminance(heat_dark[i]) < luminance(heat_dark[i - 1]) * 1.07 + 0.003 && l < 0.98 {
-            l += step;
-            heat_dark[i] = from_hsl(h, (s * 0.9).min(1.0), l);
-        }
-    }
-
+    let (prompt_bg, prompt_border) = if a == DEFAULT {
+        ([0x17, 0x24, 0x23], [0x24, 0x40, 0x3C])
+    } else {
+        (from_hsl(h, (s * 0.35).min(0.3), 0.12), from_hsl(h, (s * 0.45).min(0.35), 0.21))
+    };
+    let base = rgb_of(CELL);
+    let heat = [CELL, color(mix(a, base, 0.22)), color(mix(a, base, 0.45)), color(mix(a, base, 0.72)), color(a)];
     Shades {
-        button: color(button),
-        button_hover: color(button_hover),
-        selected_button: color(tint(0.70, 0.21)),
-        light_page: color(light_page),
-        light_tint: color(light_tint),
-        light_tint_text: color(light_tint_text),
-        light_weekend: color(tint(1.2, 0.94)),
-        light_selection: color(tint(1.15, 0.78)),
-        dark_page: color(tint(0.57, 0.112)),
-        dark_panel: color(dark_panel),
-        dark_header: color(dark_header),
-        dark_accent: color(tint(1.1, 0.68)),
-        dark_tint_text: color(dark_tint_text),
-        dark_title: color(tint(1.0, 0.78)),
-        dark_weekend: color(tint(0.57, 0.165)),
-        dark_selection: color(tint(0.85, 0.40)),
-        heat_light: heat_light.map(color),
-        heat_dark: heat_dark.map(color),
+        accent: color(a),
+        accent_hover: color(hover),
+        on_accent: color(on),
+        accent_soft: color(mix(a, rgb_of(PANEL), 0.28)),
+        prompt_bg: color(prompt_bg),
+        prompt_border: color(prompt_border),
+        heat,
     }
 }
-
 
 // ---- the theme in use --------------------------------------------------------------------------
 
@@ -190,7 +195,7 @@ static CURRENT: std::sync::Mutex<(Rgb, Option<Shades>)> = std::sync::Mutex::new(
 
 /// The accent colour in use.
 pub fn accent() -> Rgb {
-    CURRENT.lock().map(|c| c.0).unwrap_or(DEFAULT)
+    CURRENT.lock().map(|cur| cur.0).unwrap_or(DEFAULT)
 }
 
 /// Switch to a new accent colour. Returns true if it changed.
@@ -212,23 +217,20 @@ pub fn shades() -> Shades {
 
 /// The name of the preset that has this accent colour, if any.
 pub fn preset_name(accent: Rgb) -> Option<&'static str> {
-    PRESETS.iter().find(|(_, c)| *c == accent).map(|(n, _)| *n)
+    PRESETS.iter().find(|(_, col)| *col == accent).map(|(n, _)| *n)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn rgb(c: Color32) -> Rgb {
-        [c.r(), c.g(), c.b()]
-    }
-
     #[test]
     fn hsl_round_trips() {
-        for c in [[37, 99, 235], [0, 0, 0], [255, 255, 255], [200, 30, 30], [10, 200, 90], [128, 128, 128], [255, 240, 0]] {
-            let (h, s, l) = to_hsl(c);
+        for col in [[37, 99, 235], [0, 0, 0], [255, 255, 255], [200, 30, 30], [10, 200, 90], [128, 128, 128], [255, 240, 0]] {
+            let (h, s, l) = to_hsl(col);
             let back = from_hsl(h, s, l);
             for i in 0..3 {
-                assert!((i32::from(back[i]) - i32::from(c[i])).abs() <= 1, "{c:?} -> {back:?}");
+                assert!((i32::from(back[i]) - i32::from(col[i])).abs() <= 1, "{col:?} -> {back:?}");
             }
         }
         assert_eq!(to_hsl([255, 0, 0]).0, 0.0);
@@ -239,82 +241,86 @@ mod tests {
     fn contrast_matches_known_values() {
         assert!((contrast([0, 0, 0], [255, 255, 255]) - 21.0).abs() < 0.01);
         assert!((contrast([255, 255, 255], [255, 255, 255]) - 1.0).abs() < 0.001);
-        assert!(contrast([37, 99, 235], [255, 255, 255]) > 5.0, "the original blue reads well with white text");
     }
 
     #[test]
-    fn the_default_theme_matches_the_original_blue_look() {
+    fn the_default_accent_is_exactly_the_specified_tide_teal() {
         let s = derive(DEFAULT);
-        assert_eq!(rgb(s.button), DEFAULT, "the original blue is kept exactly");
-        // The shades that used to be typed in by hand are reproduced closely.
-        let near = |got: Color32, want: Rgb| {
-            let g = rgb(got);
-            (0..3).all(|i| (i32::from(g[i]) - i32::from(want[i])).abs() <= 20)
-        };
-        assert!(near(s.light_page, [240, 247, 255]), "{:?}", s.light_page);
-        assert!(near(s.light_tint, [219, 234, 254]), "{:?}", s.light_tint);
-        assert!(near(s.light_tint_text, [30, 64, 175]), "{:?}", s.light_tint_text);
-        assert!(near(s.dark_page, [15, 23, 42]), "{:?}", s.dark_page);
-        assert!(near(s.dark_panel, [30, 41, 59]), "{:?}", s.dark_panel);
-        assert!(near(s.dark_header, [30, 58, 138]), "{:?}", s.dark_header);
-        assert!(near(s.dark_accent, [96, 165, 250]), "{:?}", s.dark_accent);
-        assert!(near(s.button_hover, [29, 78, 216]), "{:?}", s.button_hover);
+        assert_eq!(rgb_of(s.accent), [0x4F, 0xB3, 0xA5]);
+        assert_eq!(rgb_of(s.prompt_bg), [0x17, 0x24, 0x23]);
+        assert_eq!(rgb_of(s.prompt_border), [0x24, 0x40, 0x3C]);
+        // The spec's text-on-accent colour is #0B1F1C; ours is within a whisker of it.
+        let on = rgb_of(s.on_accent);
+        for (got, want) in on.iter().zip([0x0B, 0x1F, 0x1C]) {
+            assert!((i32::from(*got) - want).abs() <= 8, "{on:?}");
+        }
+        assert_eq!(s.heat[0], CELL);
     }
 
-    /// The text colours the interface puts on the derived backgrounds.
+    /// Everything the interface puts on these colours stays readable.
     fn check_readable(accent: Rgb) {
         let s = derive(accent);
-        let ink_light = [30, 41, 59];
-        let ink_dark = [241, 245, 249];
-        let white = [255, 255, 255];
-        assert!(contrast(white, rgb(s.button)) >= 4.5, "{accent:?}: white on the button");
-        assert!(contrast(white, rgb(s.button_hover)) >= 4.5, "{accent:?}: white on the hovered button");
-        assert!(contrast(rgb(s.light_tint_text), rgb(s.light_tint)) >= 4.5, "{accent:?}: tinted text, light");
-        assert!(contrast(rgb(s.light_tint_text), rgb(s.light_page)) >= 4.5, "{accent:?}: titles on the page, light");
-        assert!(contrast(ink_light, rgb(s.light_page)) >= 7.0, "{accent:?}: body text, light");
-        assert!(contrast(rgb(s.dark_tint_text), rgb(s.dark_header)) >= 4.5, "{accent:?}: tinted text, dark");
-        assert!(contrast(rgb(s.dark_title), rgb(s.dark_page)) >= 4.5, "{accent:?}: titles, dark");
-        assert!(contrast(rgb(s.dark_accent), rgb(s.dark_page)) >= 3.0, "{accent:?}: highlight outline, dark");
-        assert!(contrast(ink_dark, rgb(s.dark_page)) >= 7.0, "{accent:?}: body text, dark");
-        assert!(contrast(white, rgb(s.selected_button)) >= 4.5, "{accent:?}: white on a selected view button");
-        // Heat-map shades get stronger.
-        let lum = |c: Color32| luminance(rgb(c));
-        assert!(s.heat_light.windows(2).all(|w| lum(w[0]) > lum(w[1])), "{accent:?}: light heat-map ramp");
-        assert!(s.heat_dark.windows(2).all(|w| lum(w[0]) < lum(w[1])), "{accent:?}: dark heat-map ramp");
+        let bg = rgb_of(BG);
+        let (a, on) = (rgb_of(s.accent), rgb_of(s.on_accent));
+        assert!(contrast(a, bg) >= 4.5, "{accent:?}: accent on the background");
+        assert!(contrast(rgb_of(s.accent_hover), bg) >= 4.5, "{accent:?}: hovered accent");
+        assert!(contrast(on, a) >= 4.5, "{accent:?}: text on the accent button");
+        assert!(contrast(on, rgb_of(s.accent_hover)) >= 4.0, "{accent:?}: text on the hovered button");
+        assert!(contrast(rgb_of(TEXT), rgb_of(s.prompt_bg)) >= 8.0, "{accent:?}: text on the prompt card");
+        assert!(contrast(a, rgb_of(s.prompt_bg)) >= 4.5, "{accent:?}: accent on the prompt card");
+        assert!(contrast(rgb_of(TEXT), rgb_of(s.accent_soft)) >= 4.5, "{accent:?}: text on a selection");
+        assert!(s.heat.windows(2).all(|w| luminance(rgb_of(w[0])) <= luminance(rgb_of(w[1])) + 0.001), "{accent:?}: heat ramp gets stronger");
     }
 
     #[test]
     fn every_preset_is_readable_and_distinct() {
-        for (name, accent) in PRESETS {
+        for (_, accent) in PRESETS {
             check_readable(accent);
-            let _ = name;
         }
-        let buttons: std::collections::HashSet<Rgb> = PRESETS.iter().map(|(_, c)| rgb(derive(*c).button)).collect();
-        assert_eq!(buttons.len(), PRESETS.len(), "the presets look different from each other");
+        let accents: std::collections::HashSet<Rgb> = PRESETS.iter().map(|(_, col)| rgb_of(derive(*col).accent)).collect();
+        assert_eq!(accents.len(), PRESETS.len());
         let names: std::collections::HashSet<&str> = PRESETS.iter().map(|(n, _)| *n).collect();
         assert_eq!(names.len(), PRESETS.len());
     }
 
     #[test]
     fn any_custom_colour_stays_readable() {
-        // Awkward choices: white, black, yellow, pure cyan, near-greys, and a sweep of hues.
-        let mut colours: Vec<Rgb> = vec![[255, 255, 255], [0, 0, 0], [255, 255, 0], [0, 255, 255], [250, 250, 250], [10, 10, 10], [128, 128, 128], [255, 0, 255]];
+        let mut colours: Vec<Rgb> = vec![[255, 255, 255], [0, 0, 0], [255, 255, 0], [0, 255, 255], [250, 250, 250], [10, 10, 10], [128, 128, 128], [255, 0, 255], [0, 0, 128]];
         for step in 0..72 {
             colours.push(from_hsl(step as f32 * 5.0, 0.9, 0.5));
             colours.push(from_hsl(step as f32 * 5.0, 0.4, 0.75));
-            colours.push(from_hsl(step as f32 * 5.0, 1.0, 0.25));
+            colours.push(from_hsl(step as f32 * 5.0, 1.0, 0.2));
         }
-        for c in colours {
-            check_readable(c);
+        for col in colours {
+            check_readable(col);
         }
     }
 
     #[test]
-    fn light_colours_are_darkened_for_white_text_but_dark_ones_are_kept() {
-        let yellow = derive([255, 235, 59]);
-        assert!(luminance(rgb(yellow.button)) < 0.35, "{:?}", yellow.button);
-        assert_eq!(rgb(derive([20, 60, 160]).button), [20, 60, 160]);
-        // Far too dark to see against dark mode: lifted a little.
-        assert!(luminance(rgb(derive([0, 0, 0]).button)) > 0.02);
+    fn colours_too_dark_for_the_background_are_lightened_but_good_ones_kept() {
+        assert!(contrast(rgb_of(derive([0, 0, 128]).accent), rgb_of(BG)) >= 4.5);
+        assert_eq!(rgb_of(derive([231, 177, 90]).accent), [231, 177, 90]);
+    }
+
+
+    #[test]
+    fn a_colour_saved_under_the_old_design_is_ignored() {
+        assert_eq!(starting_accent(None), DEFAULT);
+        assert_eq!(starting_accent(Some([71, 85, 105])), DEFAULT, "the old Graphite");
+        assert_eq!(starting_accent(Some([37, 99, 235])), DEFAULT, "the old blue");
+        assert_eq!(starting_accent(Some([244, 114, 160])), [244, 114, 160], "a new preset is kept");
+        assert_eq!(starting_accent(Some([10, 200, 90])), [10, 200, 90], "so is a custom colour");
+        // None of the new presets collide with the old ones.
+        assert!(PRESETS.iter().all(|(_, c)| !is_legacy(*c)));
+    }
+    #[test]
+    fn the_mood_scale_and_categories_follow_the_spec() {
+        assert_eq!(rgb_of(MOODS[0]), [0xE5, 0x73, 0x5F]);
+        assert_eq!(rgb_of(MOODS[4]), [0x4F, 0xB3, 0xA5]);
+        assert_eq!(MOOD_NAMES, ["Awful", "Low", "Okay", "Good", "Great"]);
+        assert_eq!(CATEGORY_COLOURS[4], ("Pink Stuff", [0xE5, 0x7B, 0xB8]));
+        for m in MOODS {
+            assert!(contrast(rgb_of(m), rgb_of(BG)) >= 4.5);
+        }
     }
 }

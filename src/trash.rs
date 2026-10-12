@@ -91,7 +91,7 @@ impl DiaryApp {
                         ui.label(RichText::new("Nothing here. Entries you delete will wait here for a while.").color(p.ink));
                     } else {
                         let label = if self.trash_arm { "Click again to delete everything for good" } else { "Empty the bin" };
-                        let b = egui::Button::new(RichText::new(label).color(Color32::WHITE)).fill(RED);
+                        let b = egui::Button::new(RichText::new(label).color(theme::BG)).fill(RED);
                         if ui.add(b).clicked() {
                             if self.trash_arm {
                                 empty = true;
@@ -104,16 +104,16 @@ impl DiaryApp {
                         for t in &items {
                             let e = &t.entry;
                             let c = category_color(&self.data.categories, &e.category);
-                            let fg = text_on(c);
-                            egui::Frame::new().fill(c).corner_radius(10).inner_margin(10).show(ui, |ui| {
+                            let fg = p.ink;
+                            egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(14).inner_margin(14).show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new(&e.date).strong().color(fg));
-                                    ui.label(RichText::new(e.added_at.get(11..16).unwrap_or("")).small().color(fg));
-                                    ui.label(RichText::new(&e.category).small().color(fg));
+                                    ui.label(RichText::new(e.added_at.get(11..16).unwrap_or("")).small().color(p.faint));
+                                    kit::category_pill(ui, c, &e.category);
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                         let left = t.days_left(today);
-                                        ui.label(RichText::new(format!("{left} {} left", if left == 1 { "day" } else { "days" })).small().color(fg));
+                                        ui.label(RichText::new(format!("{left} {} left", if left == 1 { "day" } else { "days" })).small().color(p.faint));
                                     });
                                 });
                                 let mut s = entry_label(e);
@@ -125,7 +125,7 @@ impl DiaryApp {
                                     if ui.button("Restore").clicked() {
                                         restore = Some(e.id);
                                     }
-                                    if ui.add(egui::Button::new(RichText::new("Delete for good").color(Color32::WHITE)).fill(RED)).clicked() {
+                                    if ui.add(egui::Button::new(RichText::new("Delete for good").color(theme::BG)).fill(RED)).clicked() {
                                         forever = Some(e.id);
                                     }
                                 });

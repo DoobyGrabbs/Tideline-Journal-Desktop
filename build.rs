@@ -62,8 +62,8 @@ fn main() {
 
     let mut res = winresource::WindowsResource::new();
     res.set_icon(path.to_str().unwrap());
-    res.set("ProductName", "My Diary");
-    res.set("FileDescription", "My Diary");
+    res.set("ProductName", "Tideline Journal");
+    res.set("FileDescription", "Tideline Journal");
     // Not fatal: the app still runs (with the default exe icon) if resource compilation fails.
     if let Err(e) = res.compile() {
         println!("cargo:warning=could not embed the exe icon: {e}");

@@ -42,8 +42,11 @@ fn shareable(e: &Entry) -> bool {
     !e.sensitive && !e.generated && !e.text.trim().is_empty()
 }
 
+/// The wording given to the AI (plain feelings, independent of the labels shown in the interface).
+const AI_MOOD_WORDS: [&str; 5] = ["Really sad", "Sad", "Okay", "Happy", "Really happy"];
+
 fn mood_word(mood: Option<u8>) -> Option<&'static str> {
-    mood.filter(|m| (1..=5).contains(m)).map(|m| MOOD_LABELS[usize::from(m) - 1])
+    mood.filter(|m| (1..=5).contains(m)).map(|m| AI_MOOD_WORDS[usize::from(m) - 1])
 }
 
 /// (system, user) for turning rough notes into an entry.
@@ -728,7 +731,7 @@ impl DiaryApp {
                                         }
                                     });
                                     ui.label(RichText::new(format!("Downloading {model}")).color(p.ink));
-                                    ui.add(egui::ProgressBar::new(progress.as_ref().and_then(percent).unwrap_or(0.0)).text(RichText::new(text).color(Color32::WHITE)).fill(blue()));
+                                    ui.add(egui::ProgressBar::new(progress.as_ref().and_then(percent).unwrap_or(0.0)).text(RichText::new(text).color(Color32::WHITE)).fill(accent_fill()));
                                     cancel_pull = ui.button("Cancel download").clicked();
                                 }
                             }

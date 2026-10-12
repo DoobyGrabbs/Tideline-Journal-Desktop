@@ -21,6 +21,10 @@ pub struct LiveStyle {
     pub muted: Color32,
     pub accent: Color32,
     pub size: f32,
+    /// Write in the serif face (Newsreader) rather than the interface face.
+    pub serif: bool,
+    /// Line height as a multiple of the text size (1.0 = the font's own).
+    pub line_height: f32,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -49,16 +53,26 @@ impl Out<'_> {
         let size = self.st.size * if look.scale > 0.0 { look.scale } else { 1.0 };
         let family = if look.code {
             FontFamily::Monospace
+        } else if self.st.serif {
+            if look.bold || look.scale > 1.0 {
+                crate::fonts::serif_bold()
+            } else if look.italic {
+                crate::fonts::serif_italic()
+            } else {
+                crate::fonts::serif()
+            }
         } else if look.bold || look.scale > 1.0 {
             bold_family()
         } else {
             FontFamily::Proportional
         };
+        let real_italic = self.st.serif && look.italic && !look.code && !(look.bold || look.scale > 1.0);
         let color = if look.link { self.st.accent } else { self.st.ink };
         let fmt = TextFormat {
             font_id: FontId::new(if look.code { size * 0.92 } else { size }, family),
             color,
-            italics: look.italic,
+            italics: look.italic && !real_italic,
+            line_height: (self.st.line_height > 1.0).then(|| size * self.st.line_height),
             strikethrough: if look.strike { Stroke::new(1.0, color) } else { Stroke::NONE },
             underline: if look.link { Stroke::new(1.0, color) } else { Stroke::NONE },
             background: if look.code { self.st.ink.gamma_multiply(0.13) } else { Color32::TRANSPARENT },
@@ -239,7 +253,8 @@ fn style_line(line: &str, in_code: &mut bool, out: &mut Out) {
 pub fn layout(text: &str, reveal: Option<(usize, usize)>, show_all: bool, st: &LiveStyle, wrap: f32) -> LayoutJob {
     let mut job = LayoutJob::default();
     job.wrap.max_width = wrap;
-    let plain = TextFormat { font_id: FontId::proportional(st.size), color: st.ink, ..Default::default() };
+    let plain_family = if st.serif { crate::fonts::serif() } else { FontFamily::Proportional };
+    let plain = TextFormat { font_id: FontId::new(st.size, plain_family), color: st.ink, line_height: (st.line_height > 1.0).then(|| st.size * st.line_height), ..Default::default() };
 
     let mut in_code = false;
     let mut offset = 0usize;
@@ -322,7 +337,7 @@ mod tests {
     use super::*;
 
     fn style() -> LiveStyle {
-        LiveStyle { ink: Color32::BLACK, muted: Color32::GRAY, accent: Color32::BLUE, size: 16.0 }
+        LiveStyle { ink: Color32::BLACK, muted: Color32::GRAY, accent: Color32::BLUE, size: 16.0, serif: false, line_height: 1.0 }
     }
 
     #[test]

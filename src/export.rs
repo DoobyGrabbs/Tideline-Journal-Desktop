@@ -449,7 +449,7 @@ mod tests {
         let images = BTreeMap::from([("i1".to_string(), png_b64())]);
         for include_images in [true, false] {
             let report = Report {
-                title: "My Diary".into(),
+                title: "Tideline Journal".into(),
                 subtitle: "Test".into(),
                 entries: entries.iter().collect(),
                 include_images,

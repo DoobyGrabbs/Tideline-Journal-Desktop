@@ -85,7 +85,7 @@ impl DiaryApp {
                         });
                         ui.add_space(4.0);
                         let del = if arm == 2 { "Click again to remove it" } else { "Remove the recovery key" };
-                        if ui.add(egui::Button::new(RichText::new(del).color(Color32::WHITE)).fill(RED)).clicked() {
+                        if ui.add(egui::Button::new(RichText::new(del).color(theme::BG)).fill(RED)).clicked() {
                             if arm == 2 {
                                 remove = true;
                                 new_arm = 0;

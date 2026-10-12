@@ -266,7 +266,7 @@ impl DiaryApp {
                                             self.backup_restore_arm = Some(b.path.clone());
                                         }
                                     }
-                                    if ui.add(egui::Button::new(RichText::new("Delete").color(Color32::WHITE)).fill(RED)).clicked() {
+                                    if ui.add(egui::Button::new(RichText::new("Delete").color(theme::BG)).fill(RED)).clicked() {
                                         delete_it = Some(b.path.clone());
                                     }
                                 });

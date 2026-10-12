@@ -176,7 +176,7 @@ impl DiaryApp {
                         for (t, name) in [(Tab::Mood, "Mood patterns"), (Tab::Writing, "Writing"), (Tab::Review, "Review")] {
                             let mut b = egui::Button::new(RichText::new(name).strong().color(Color32::WHITE));
                             if tab == t {
-                                b = b.fill(theme::shades().selected_button).stroke(Stroke::new(2.0, p.accent));
+                                b = b.fill(theme::NAV_ACTIVE).stroke(Stroke::new(2.0, p.accent));
                             }
                             if ui.add(b).clicked() {
                                 tab = t;
@@ -318,10 +318,13 @@ impl DiaryApp {
                                 ui.label(RichText::new("Entries to remember").size(17.0).strong().color(p.title));
                                 for h in &r.highlights {
                                     let c = category_color(&data.categories, &h.category);
-                                    let fg = text_on(c);
-                                    let card = egui::Frame::new().fill(c).corner_radius(8).inner_margin(8).show(ui, |ui| {
+                                    let fg = p.ink;
+                                    let card = egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(12).inner_margin(12).show(ui, |ui| {
                                         ui.set_width(ui.available_width());
-                                        ui.label(RichText::new(format!("{}   {}   {}{}", h.date, h.time, h.category, if h.pinned { "   (pinned)" } else { "" })).strong().small().color(fg));
+                                        ui.horizontal(|ui| {
+                                            kit::category_pill(ui, c, &h.category);
+                                            ui.label(RichText::new(format!("{}   {}{}", h.date, h.time, if h.pinned { "   (pinned)" } else { "" })).small().color(p.faint));
+                                        });
                                         ui.label(RichText::new(&h.snippet).color(fg));
                                     });
                                     if ui.interact(card.response.rect, ui.id().with(("hl", h.entry_id)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {

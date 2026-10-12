@@ -311,8 +311,8 @@ fn job(snip: &Snippet, fg: Color32, size: f32) -> LayoutJob {
     for (s, hit) in snip {
         let mut fmt = TextFormat { font_id: FontId::proportional(size), color: fg, ..Default::default() };
         if *hit {
-            fmt.background = Color32::from_rgb(253, 224, 71);
-            fmt.color = Color32::from_rgb(30, 41, 59);
+            fmt.background = Color32::from_rgba_unmultiplied(231, 177, 90, 80);
+            fmt.color = theme::TEXT;
         }
         job.append(s, 0.0, fmt);
     }
@@ -409,17 +409,18 @@ impl DiaryApp {
             for hit in hits.iter().take(PAGE) {
                 let e = &self.data.entries[hit.entry];
                 let c = category_color(&self.data.categories, &e.category);
-                let fg = text_on(c);
-                let card = egui::Frame::new().fill(c).corner_radius(10).inner_margin(10).show(ui, |ui| {
+                let fg = p.ink;
+                let card = egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(14).inner_margin(14).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&e.date).strong().color(fg));
-                        ui.label(RichText::new(e.added_at.get(11..16).unwrap_or("")).small().color(fg));
+                        ui.label(RichText::new(e.added_at.get(11..16).unwrap_or("")).small().color(p.faint));
                         if e.pinned {
-                            ui.label(RichText::new("★").color(fg));
+                            kit::paint(ui.painter(), ui.cursor().min + vec2(7.0, 11.0), 14.0, theme::TODAY, kit::Icon::Star, true);
+                            ui.add_space(16.0);
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(&e.category).small().color(fg));
+                            kit::category_pill(ui, c, &e.category);
                             if let Some(m) = e.mood {
                                 mood_badge(ui, m);
                             }

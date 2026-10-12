@@ -202,7 +202,7 @@ impl DiaryApp {
                                                 start = Some(Draft { index: None, name: format!("{name} (mine)"), body });
                                             }
                                         } else if let Some(i) = self.data.templates.iter().position(|t| &t.name == name) {
-                                            if ui.add(egui::Button::new(RichText::new("Delete").color(Color32::WHITE)).fill(RED)).clicked() {
+                                            if ui.add(egui::Button::new(RichText::new("Delete").color(theme::BG)).fill(RED)).clicked() {
                                                 delete = Some(i);
                                             }
                                             if ui.button("Edit").clicked() {

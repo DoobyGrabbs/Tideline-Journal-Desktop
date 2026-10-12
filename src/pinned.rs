@@ -35,18 +35,18 @@ impl DiaryApp {
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                         for e in &pinned {
                             let c = category_color(&self.data.categories, &e.category);
-                            let fg = text_on(c);
-                            let card = egui::Frame::new().fill(c).corner_radius(10).inner_margin(10).show(ui, |ui| {
+                            let fg = p.ink;
+                            let card = egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(14).inner_margin(14).show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.horizontal(|ui| {
                                     let (r, star) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
-                                    paint_star(ui.painter(), r.center(), 9.0, fg, true);
+                                    kit::paint(ui.painter(), r.center(), 18.0, theme::TODAY, kit::Icon::Star, true);
                                     if star.on_hover_text("Unpin").clicked() {
                                         unpin = Some(e.id);
                                     }
                                     ui.label(RichText::new(&e.date).strong().color(fg));
-                                    ui.label(RichText::new(e.added_at.get(11..16).unwrap_or("")).small().color(fg));
-                                    ui.label(RichText::new(&e.category).small().color(fg));
+                                    ui.label(RichText::new(e.added_at.get(11..16).unwrap_or("")).small().color(p.faint));
+                                    kit::category_pill(ui, c, &e.category);
                                     if let Some(m) = e.mood.filter(|_| !e.sensitive) {
                                         mood_badge(ui, m);
                                     }

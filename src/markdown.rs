@@ -6,10 +6,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
-use eframe::egui::{
-    self, Color32, FontFamily, FontId, Label, Stroke, TextureHandle, TextureOptions,
-    text::{LayoutJob, TextFormat},
-};
+use eframe::egui::{self, Color32, FontFamily, Label, TextureHandle, TextureOptions};
+#[cfg(test)]
+use eframe::egui::{FontId, Stroke, text::{LayoutJob, TextFormat}};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 pub const IMAGE_SCHEME: &str = "img:";
@@ -274,6 +273,7 @@ pub fn images(md: &str) -> Vec<(String, String)> {
 // Rendering
 // ---------------------------------------------------------------------------------------------
 
+#[cfg(test)]
 pub struct Style {
     pub text: Color32,
     pub link: Color32,
@@ -317,9 +317,10 @@ impl Media {
 }
 
 pub fn bold_family() -> FontFamily {
-    FontFamily::Name("bold".into())
+    crate::fonts::ui_bold()
 }
 
+#[cfg(test)]
 fn job_for(inlines: &[Inline], style: &Style, size: f32, force_bold: bool) -> LayoutJob {
     let mut job = LayoutJob::default();
     for inl in inlines {
@@ -350,6 +351,7 @@ fn job_for(inlines: &[Inline], style: &Style, size: f32, force_bold: bool) -> La
     job
 }
 
+#[cfg(test)]
 fn render_inlines(
     ui: &mut egui::Ui,
     inlines: &[Inline],
@@ -379,6 +381,7 @@ fn render_inlines(
     flush(ui, &mut run);
 }
 
+#[cfg(test)]
 fn render_blocks(
     ui: &mut egui::Ui,
     blocks: &[Block],
@@ -432,6 +435,7 @@ fn render_blocks(
 }
 
 /// Draw `md` into `ui`.
+#[cfg(test)]
 pub fn render(ui: &mut egui::Ui, md: &str, style: &Style, media: &mut Media, images: &BTreeMap<String, String>) {
     // Treat every line break as a line break (plain-text entries keep their layout).
     let md = md.replace("\r\n", "\n").replace('\n', "  \n");
@@ -696,4 +700,55 @@ pub fn plain_text(md: &str) -> String {
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Split an entry into its title (a first-line `# Heading`) and the rest of the text.
+pub fn split_title(md: &str) -> (Option<String>, String) {
+    if let Some(rest) = md.strip_prefix("# ") {
+        let (first, tail) = rest.split_once('\n').unwrap_or((rest, ""));
+        let title = first.trim();
+        if !title.is_empty() {
+            return (Some(title.to_string()), tail.trim_start_matches('\n').to_string());
+        }
+    }
+    (None, md.to_string())
+}
+
+/// The reverse: put a title back in front of the body as a first-line heading.
+pub fn join_title(title: &str, body: &str) -> String {
+    let title = title.trim();
+    if title.is_empty() {
+        body.to_string()
+    } else if body.is_empty() {
+        format!("# {title}")
+    } else {
+        format!("# {title}\n\n{body}")
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    #[test]
+    fn a_first_line_heading_is_the_title() {
+        assert_eq!(split_title("# Long walk\n\nThe tide was out."), (Some("Long walk".into()), "The tide was out.".into()));
+        assert_eq!(split_title("# Only a title"), (Some("Only a title".into()), String::new()));
+        // Not a title: no heading, a deeper heading, an empty heading, or a heading further down.
+        for text in ["Just text", "## Second level\n\nbody", "# \nbody", "Intro\n\n# Later heading"] {
+            assert_eq!(split_title(text), (None, text.to_string()), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn titles_join_back_on() {
+        assert_eq!(join_title("Walk", "Body"), "# Walk\n\nBody");
+        assert_eq!(join_title("Walk", ""), "# Walk");
+        assert_eq!(join_title("  ", "Body"), "Body");
+        assert_eq!(join_title("", ""), "");
+        for text in ["# A\n\nB", "plain", "# T"] {
+            let (t, b) = split_title(text);
+            assert_eq!(join_title(&t.unwrap_or_default(), &b), text);
+        }
+    }
 }

@@ -1,28 +1,30 @@
-# VibeDiary
+# Tideline Journal
 
-A simple, private diary / journal for Windows, written in Rust with [eframe/egui](https://github.com/emilk/egui).
+*Every day leaves a mark.*
+
+A private diary / journal for Windows, written in Rust with [eframe/egui](https://github.com/emilk/egui). (The GitHub project is still called VibeDiary; the program and its data folder keep working as before.)
 
 Write down your thoughts each day with rich formatting and pictures, tag them with colour-coded categories, rate your mood, and see at a glance which days have entries. Everything is encrypted with a password.
 
 ## Features
 
 **Calendar**
-- **Day, Week, Month, Year and Photos views.** In Day, Week and Month each entry is a coloured pill (time + first line); the Day view is an hour-by-hour timeline. A small face on a day shows its average mood.
+- **Day, Week, Month, Year and Photos views.** In Day, Week and Month each entry is a small chip (category dot, time, title); the Day view is an hour-by-hour timeline. A coloured dot on a day shows its average mood, today is in an amber circle and the selected day has an outline. Days from the neighbouring months are dimmed.
 - **Photos view**: every picture in the diary as thumbnails, newest first and grouped by month. Click one to see it large (arrow keys move between pictures) or jump to its entry.
 - **Year view**: a heat-map of the days you wrote (shade = words written), plus entries, days written, words, current and longest streak, average mood, entries per category and a chart of your mood through the year.
 - **Drag and drop**: drag an entry's pill onto another day to move it (its time is kept). In the Day view, drag it to another hour to change its time. Press Esc to cancel a drag; double-click a pill to edit it.
 - **On this day**: the day panel lists what you wrote on the same date in earlier years; click one to jump to it.
-- **Random**: the Random button (or `Ctrl+R`) jumps to a random entry from the past. Private entries are never picked.
-- **Pinned entries**: click the star on an entry to pin it. Pinned entries are starred on the calendar and listed under **Pinned** in the header.
-- **Insights** (header button): *Mood patterns* (which days, times of day, entry lengths and categories go with happier or lower ratings), *Writing* (most-used words, when you write, longest entries) and *Review* (a recap of a week, month or year with highlights and pictures, which can be saved as a PDF).
-- **Search** across all entries from the box in the header (`Ctrl+F`). Every word you type must appear, in any order and any capitalisation; put a phrase in "quotes" to match it exactly, and a `-` before a word to leave out entries containing it. Matches are highlighted in a short excerpt. The **Filters** button narrows results by category, mood, time period (or between two dates), starred entries and entries with attachments, and results can be sorted newest first, oldest first or by best match. Filters work with or without words. Category, date and attachment names are searched too; private entries are found only by category or date, never by their text. Click a result to jump to its day.
+- **Surprise me**: the button (or `Ctrl+R`) jumps to a random entry from the past. Private entries are never picked.
+- **Pinned entries**: click the star on an entry to pin it. Pinned entries are starred on the calendar and listed under **Pinned** in the side menu.
+- **Insights** (side menu): *Mood patterns* (which days, times of day, entry lengths and categories go with happier or lower ratings), *Writing* (most-used words, when you write, longest entries) and *Review* (a recap of a week, month or year with highlights and pictures, which can be saved as a PDF).
+- **Search** across all entries from the box in the title bar (`Ctrl+F`). Every word you type must appear, in any order and any capitalisation; put a phrase in "quotes" to match it exactly, and a `-` before a word to leave out entries containing it. Matches are highlighted in a short excerpt. The **Filters** button narrows results by category, mood, time period (or between two dates), starred entries and entries with attachments, and results can be sorted newest first, oldest first or by best match. Filters work with or without words. Category, date and attachment names are searched too; private entries are found only by category or date, never by their text. Click a result to jump to its day.
 
 **Writing**
-- **WYSIWYG rich text editor** (Markdown underneath): type in a single page where bold looks bold, headings are large and the Markdown marks disappear. The marks show on the line your cursor is on, or everywhere with "Show formatting marks". A toolbar offers bold, italic, strikethrough, code, three heading sizes, bulleted and numbered lists and quotes.
+- **The writing view** is a full page rather than a pop-up (**New entry**, or **Open** on an entry): details chips for the date, time, category, Pin and Private; the mood row; a prompt card; and a writing card with a toolbar, an optional title and the text. **Discard** asks you to click twice when you have written something. The page is a **WYSIWYG rich text editor** (Markdown underneath; a title is stored as a first-line `# Heading`): type in a single page where bold looks bold, headings are large and the Markdown marks disappear. The marks show on the line your cursor is on, or everywhere with "Show formatting marks". A toolbar offers bold, italic, strikethrough, code, three heading sizes, bulleted and numbered lists and quotes.
 - **Pictures** appear in the page where you put them. Add them with the **Image** button or by dropping a file onto the editor, and remove them with the button under each one. Large images are shrunk (longest side 1600 px) and stored inside the encrypted diary.
-- **Mood**: rate each entry with five emoji-style faces, from really sad (red, crying) to really happy (green, grinning). Click a face again to clear it. The scale is stored as 1 to 5.
+- **Mood**: rate each entry with five outline faces, from Awful to Great, each in its own colour. Click one again to clear it. The scale is stored as 1 to 5.
 - **Templates** (**Template** menu in the editor, or **Settings → Templates**): eight ready-made starting points (Gratitude, Daily review, Evening wind-down, Weekly reflection, Mood check-in, Goals check-in, Dream log, Travel log) plus your own. Use `{date}`, `{weekday}` and `{time}` in your own and they are filled in automatically. You can pick one to open with every new entry.
-- **Writing prompts**: above an empty entry a short question appears ("What made you smile today?"). **Use it** starts the entry with it, **Another** shows the next one, and **Hide prompts** turns them off (back on under **Settings**).
+- **Writing prompts**: above an empty entry a short question appears ("What made you smile today?"). **Use it** starts the entry with it, **Another** shows the next one, and the × turns them off (back on under **Settings**).
 - **AI helpers** (optional, off until you set them up; see below): draft an entry from your rough notes, summarise a day, or suggest a question to reflect on.
 - **Attachments**: attach any file (up to 25 MB each) with **Attach file…** or by dropping it on the editor. Files are stored inside the encrypted diary; use **Save as…** or **Open** on the entry's card to get them out. (**Open** writes a temporary, unencrypted copy that is deleted when the diary locks or the app next starts.)
 - **Private entries**: tick **Private** and the entry stays hidden (its text, mood, pictures and search matches) until you click it open. It is hidden again when the diary locks or the window loses focus.
@@ -43,9 +45,9 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 - **Data location**: **Settings → Data location** shows where the diary lives, moves it to another folder, or opens a diary (such as a backup) from another folder.
 
 **Look and feel**
-- Popup windows are draggable and resizable; light and dark mode follow your Windows setting.
+- **Tideline Journal design**: a dark interface (there is no light mode) following `TIDELINE_JOURNAL_DESIGN.md`: a title bar with the search box and window controls (drag it to move the window, double-click to maximise), a side menu (New entry, Today, Calendar, Timeline, Pinned, Photos, Insights, your categories with their counts, Lock journal and Settings), the calendar in the middle and the day panel on the right. Text is set in two typefaces bundled with the program (see `assets/fonts`, both under the SIL Open Font License): Hanken Grotesk for the interface and Newsreader for headings and for everything you write. **Timeline** lists every entry newest first. The Settings menu is the one at the bottom of the side menu.- Pop-up windows are draggable and resizable.
 - **Window on startup** (**Settings → Window on startup**): a normal window, maximised (fills the screen, keeps the taskbar) or full screen (covers the taskbar). `F11` switches full screen on and off any time, even on the unlock screen. The choice is kept in the small plain settings file `%APPDATA%VibeDiarynfig.json` (next to the data-location setting), because the window opens before the diary is unlocked.
-- **Colour theme** (**Settings → Colour theme**): pick one of eight ready-made themes (Ocean, Indigo, Plum, Rose, Ember, Forest, Teal, Graphite) or choose any colour of your own. Every shade in light and dark mode (header, buttons, calendar, heat-map) is worked out from that one colour, and it is automatically adjusted so white button text and titles stay easy to read, whatever you pick. It applies instantly and is also used on the unlock screen (stored in the same plain `config.json`). PDF exports keep their blue headings.
+- **Accent colour** (**Settings → Colour theme**): the one colour you can change. Pick one of eight (Tide, Sky, Violet, Rose, Lamp, Ember, Moss, Slate) or any colour of your own; it drives the main buttons, the selected day, focus and the prompt card, and is automatically adjusted so it stays readable on the dark background. It applies instantly and is also used on the unlock screen (kept in the same plain `config.json`). A choice saved under the earlier blue design is ignored. PDF exports keep their blue headings.
 - Keyboard shortcuts (see below, or **Settings → Keyboard shortcuts**).
 
 ## Using the app
@@ -157,10 +159,11 @@ Once decrypted, the data looks like this:
 - `src/live.rs` styles the text as you type (the WYSIWYG layout) and splits an entry into text and picture blocks.
 - `src/stats.rs` works out totals, streaks, the heat-map levels, the mood series and "On this day".
 - `src/reports.rs` works out mood patterns, writing statistics and week / month / year reviews; `src/insights.rs` is the Insights window that shows them.
-- `src/gallery.rs` is the Photos view and picture viewer; `src/pinned.rs` is the Pinned list; `src/faces.rs` draws the mood faces.
+- `src/gallery.rs` is the Photos view and picture viewer; `src/pinned.rs` is the Pinned list.
 - `src/export.rs` builds the PDF.
 - `src/location.rs` decides where the diary file lives and moves it.
 - `src/templates.rs` holds the templates and writing prompts and their window. `src/ollama.rs` is the small client for a local Ollama server, and `src/ai.rs` the AI helpers (requests, background tasks, the setup window and result window).
 - `src/vault.rs` contains the encryption: the password, the recovery key and the wrapped data key. `src/recovery.rs` is the Recovery key window; `src/trash.rs` is Recently deleted.
-- `src/icon.rs` draws the app icon; `build.rs` turns it into the `.exe` icon.
+- `src/theme.rs` holds Tideline Journal's colours (fixed tokens plus the accent and everything derived from it, with contrast checks); `src/fonts.rs` installs the bundled typefaces; `src/kit.rs` draws the outline icons, mood faces and the custom buttons, chips, switch and date picker; `src/editor.rs` is the writing view; `src/search.rs` and `src/backups.rs` are search and automatic backups.
+- `src/icon.rs` draws the app icon (the Tideline Journal mark); `build.rs` turns it into the `.exe` icon. `src/demo.rs` is a look-around mode: run with the environment variable `TIDELINE_DEMO=1` to start unlocked with made-up entries (nothing real is read or written).
 - `Cargo.toml` lists the dependencies: `eframe`/`egui_extras` (UI), `chrono`/`jiff` (dates), `serde`/`serde_json`, `pulldown-cmark` (Markdown), `image` (pictures), `rfd` (file dialogs), `argon2`/`chacha20poly1305`/`base64`/`getrandom` (encryption), `genpdf`/`lopdf` (PDF), `ureq` (talking to Ollama on this PC), and `winresource` (build only).
