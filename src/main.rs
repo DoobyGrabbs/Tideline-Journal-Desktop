@@ -363,6 +363,8 @@ struct DiaryApp {
     status: String,
     media: markdown::Media,
     show_marks: bool,
+    /// How the window opens (kept in the small settings file, not the encrypted diary).
+    start_mode: location::StartMode,
     ai: ai::AiState,
     templates: templates::TemplateState,
     show_recovery: bool,
@@ -433,6 +435,7 @@ clear_open_files(); // leftovers from opening attachments last time
             status: String::new(),
             media: markdown::Media::default(),
             show_marks: false,
+            start_mode: location::start_mode(),
             ai: ai::AiState::default(),
             templates: templates::TemplateState::default(),
             show_recovery: false,
@@ -928,6 +931,10 @@ clear_open_files(); // leftovers from opening attachments last time
     /// Keyboard shortcuts (listed in the "Keyboard shortcuts" window).
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         use egui::{Key, Modifiers};
+        // F11 switches full screen on and off, even on the lock screen.
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F11)) {
+            toggle_fullscreen(ctx);
+        }
         if self.lock.is_some() {
             return;
         }
@@ -1129,13 +1136,14 @@ clear_open_files(); // leftovers from opening attachments last time
             .show(ctx, |ui| {
                 close |= popup_header(ui, &p, "Keyboard shortcuts");
                 egui::Frame::new().inner_margin(14).show(ui, |ui| {
-                    let rows: [(&str, &str); 16] = [
+                    let rows: [(&str, &str); 17] = [
                         ("Ctrl+N", "New entry on the selected day"),
                         ("Ctrl+F", "Search entries"),
                         ("Ctrl+T", "Jump to today"),
                         ("Ctrl+L", "Lock the diary"),
                         ("Ctrl+E", "Export entries to PDF"),
                         ("Ctrl+R", "Jump to a random entry"),
+                        ("F11", "Full screen on / off"),
                         ("Ctrl + / Ctrl -", "Bigger / smaller text (Ctrl+0 resets)"),
                         ("← / →", "Previous / next month, week, day or year"),
                         ("Ctrl+1 … 5", "Day, Week, Month, Year, Photos view"),
@@ -1218,6 +1226,26 @@ clear_open_files(); // leftovers from opening attachments last time
                     }
                     if ui.button("Back up encrypted copy…").clicked() {
                         self.backup();
+                        ui.close();
+                    }
+                    ui.menu_button("Window on startup", |ui| {
+                        for (mode, label) in [
+                            (location::StartMode::Normal, "Normal window"),
+                            (location::StartMode::Maximized, "Maximised (fills the screen)"),
+                            (location::StartMode::Fullscreen, "Full screen (covers the taskbar)"),
+                        ] {
+                            if ui.radio(self.start_mode == mode, label).clicked() {
+                                self.start_mode = mode;
+                                if let Err(e) = location::set_start_mode(mode) {
+                                    self.status = format!("Save failed: couldn't remember the window setting ({e})");
+                                }
+                            }
+                        }
+                        ui.separator();
+                        ui.label(RichText::new("Takes effect next time the diary starts.\nPress F11 any time to switch full screen on or off.").small());
+                    });
+                    if ui.button("Full screen on / off (F11)").clicked() {
+                        toggle_fullscreen(ui.ctx());
                         ui.close();
                     }
                     ui.menu_button("Text size", |ui| {
@@ -2734,10 +2762,17 @@ impl eframe::App for DiaryApp {
 }
 
 fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_icon(std::sync::Arc::new(egui::IconData { rgba: icon::rgba(256), width: 256, height: 256 })).with_inner_size([1280.0, 760.0]).with_min_inner_size([1200.0, 600.0]),
-        ..Default::default()
-    };
+    let icon = egui::IconData { rgba: icon::rgba(256), width: 256, height: 256 };
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_icon(std::sync::Arc::new(icon))
+        .with_inner_size([1280.0, 760.0])
+        .with_min_inner_size([1200.0, 600.0]);
+    match location::start_mode() {
+        location::StartMode::Normal => {}
+        location::StartMode::Maximized => viewport = viewport.with_maximized(true),
+        location::StartMode::Fullscreen => viewport = viewport.with_fullscreen(true),
+    }
+    let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native(
         "Diary",
         options,
@@ -3547,6 +3582,33 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn f11_switches_full_screen_on_and_off_even_on_the_lock_screen() {
+        let ctx = egui::Context::default();
+        let f11 = |ctx: &egui::Context, app: &mut DiaryApp, fullscreen: bool| {
+            let input = egui::RawInput {
+                viewports: std::iter::once((
+                    egui::ViewportId::ROOT,
+                    egui::ViewportInfo { fullscreen: Some(fullscreen), ..Default::default() },
+                ))
+                .collect(),
+                events: vec![egui::Event::Key { key: egui::Key::F11, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| app.handle_shortcuts(ui.ctx()));
+            out.textures_delta.clear();
+            out.viewport_output.values().flat_map(|v| v.commands.iter()).filter_map(|c| match c {
+                egui::ViewportCommand::Fullscreen(on) => Some(*on),
+                _ => None,
+            }).collect::<Vec<bool>>()
+        };
+        let mut app = app_with_entries();
+        assert_eq!(f11(&ctx, &mut app, false), vec![true], "from a window to full screen");
+        assert_eq!(f11(&ctx, &mut app, true), vec![false], "and back");
+        app.lock = Some(Lock::new(LockMode::Create));
+        assert_eq!(f11(&ctx, &mut app, false), vec![true], "it works on the lock screen too");
+    }
     #[test]
     fn all_calendar_views_render() {
         let ctx = egui::Context::default();
@@ -3913,4 +3975,10 @@ fn paint_star(painter: &egui::Painter, center: egui::Pos2, r: f32, color: Color3
 /// private entries.
 fn entry_label(e: &Entry) -> String {
     if e.sensitive { "Private entry".into() } else { markdown::summary(&e.text) }
+}
+
+/// Switch the whole-screen mode on or off.
+fn toggle_fullscreen(ctx: &egui::Context) {
+    let on = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!on));
 }

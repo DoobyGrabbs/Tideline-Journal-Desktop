@@ -43,6 +43,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 
 **Look and feel**
 - Popup windows are draggable and resizable; light and dark mode follow your Windows setting.
+- **Window on startup** (**Settings → Window on startup**): a normal window, maximised (fills the screen, keeps the taskbar) or full screen (covers the taskbar). `F11` switches full screen on and off any time, even on the unlock screen. The choice is kept in the small plain settings file `%APPDATA%VibeDiarynfig.json` (next to the data-location setting), because the window opens before the diary is unlocked.
 - Keyboard shortcuts (see below, or **Settings → Keyboard shortcuts**).
 
 ## Using the app
@@ -61,6 +62,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 | Search | `Ctrl+F`, then type; clear the box to go back to the day view |
 | Save an entry | **Save**, `Ctrl+S` or `Ctrl+Enter` |
 | Lock | **Lock** or `Ctrl+L` |
+| Full screen | `F11` (or **Settings → Full screen on / off**) |
 
 Other editor shortcuts: `Ctrl+B` bold, `Ctrl+I` italic.
 

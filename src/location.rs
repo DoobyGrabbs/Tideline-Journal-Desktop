@@ -11,9 +11,27 @@ use serde::{Deserialize, Serialize};
 pub const FILE_NAME: &str = "entries.json";
 const APP_FOLDER: &str = "VibeDiary";
 
-#[derive(Serialize, Deserialize, Default)]
+/// How the window opens.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StartMode {
+    /// A normal window.
+    #[default]
+    Normal,
+    /// Fills the screen but keeps the title bar and taskbar.
+    Maximized,
+    /// Covers the whole screen, taskbar included (F11 switches it off).
+    Fullscreen,
+}
+
+/// The small plain-text settings file. It holds only things the app needs before the diary is
+/// unlocked, so nothing private belongs in it.
+#[derive(Serialize, Deserialize, Default, Clone)]
 struct Config {
+    #[serde(default)]
     data_dir: Option<PathBuf>,
+    #[serde(default)]
+    start: StartMode,
 }
 
 /// Where per-user app files go (`%APPDATA%` on Windows).
@@ -53,14 +71,37 @@ fn resolve(config: &Path, default: &Path) -> PathBuf {
         .unwrap_or_else(|| default.to_path_buf())
 }
 
-fn write_config(config: &Path, dir: &Path) -> Result<(), String> {
+fn load_config(config: &Path) -> Config {
+    std::fs::read_to_string(config).ok().and_then(|raw| serde_json::from_str::<Config>(&raw).ok()).unwrap_or_default()
+}
+
+fn save_config(config: &Path, settings: &Config) -> Result<(), String> {
     if let Some(parent) = config.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let json = serde_json::to_string_pretty(&Config { data_dir: Some(dir.to_path_buf()) }).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     let tmp = config.with_extension("json.tmp");
     std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, config).map_err(|e| e.to_string())
+}
+
+/// Remember the data folder (keeping the other settings in the file).
+fn write_config(config: &Path, dir: &Path) -> Result<(), String> {
+    let mut settings = load_config(config);
+    settings.data_dir = Some(dir.to_path_buf());
+    save_config(config, &settings)
+}
+
+/// How the window should open (normal if nothing has been chosen).
+pub fn start_mode() -> StartMode {
+    load_config(&config_path()).start
+}
+
+/// Remember how the window should open next time (keeping the other settings in the file).
+pub fn set_start_mode(mode: StartMode) -> Result<(), String> {
+    let mut settings = load_config(&config_path());
+    settings.start = mode;
+    save_config(&config_path(), &settings)
 }
 
 /// Development builds used to keep the diary next to the source code. If there is such a file
@@ -207,5 +248,66 @@ mod isolation {
         assert!(config_path().starts_with(std::env::temp_dir()));
         let real = app_data_root().join(APP_FOLDER);
         assert!(!data_dir().starts_with(&real) && !config_path().starts_with(&real));
+    }
+}
+
+#[cfg(test)]
+mod start_mode_tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("diary-start-{}-{name}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_start_mode_and_the_data_folder_are_kept_together() {
+        let dir = temp("both");
+        let config = dir.join("config.json");
+        // Nothing saved yet: a normal window.
+        assert_eq!(load_config(&config).start, StartMode::Normal);
+
+        let mut settings = load_config(&config);
+        settings.start = StartMode::Fullscreen;
+        save_config(&config, &settings).unwrap();
+        // Choosing a data folder afterwards doesn't forget the start mode...
+        write_config(&config, &dir.join("diary")).unwrap();
+        let back = load_config(&config);
+        assert_eq!((back.start, back.data_dir), (StartMode::Fullscreen, Some(dir.join("diary"))));
+        // ...and neither does changing the mode forget the folder.
+        let mut again = load_config(&config);
+        again.start = StartMode::Maximized;
+        save_config(&config, &again).unwrap();
+        assert_eq!(resolve(&config, &dir.join("default")), dir.join("diary"));
+        assert_eq!(load_config(&config).start, StartMode::Maximized);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn old_and_damaged_settings_files_mean_a_normal_window() {
+        let dir = temp("old");
+        let config = dir.join("config.json");
+        // A file from before the start mode existed.
+        std::fs::write(&config, r#"{"data_dir": "C:/Diaries"}"#).unwrap();
+        let old = load_config(&config);
+        assert_eq!((old.start, old.data_dir), (StartMode::Normal, Some(PathBuf::from("C:/Diaries"))));
+        // The mode is written as plain words, and an unknown one falls back safely.
+        assert!(serde_json::to_string(&StartMode::Fullscreen).unwrap().contains("fullscreen"));
+        std::fs::write(&config, r#"{"start": "sideways"}"#).unwrap();
+        assert_eq!(load_config(&config).start, StartMode::Normal);
+        std::fs::write(&config, "not json").unwrap();
+        assert_eq!(load_config(&config).start, StartMode::Normal);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_real_setting_helpers_use_the_throw_away_folder_in_tests() {
+        set_start_mode(StartMode::Maximized).unwrap();
+        assert_eq!(start_mode(), StartMode::Maximized);
+        assert!(config_path().starts_with(std::env::temp_dir()));
+        set_start_mode(StartMode::Normal).unwrap();
+        assert_eq!(start_mode(), StartMode::Normal);
     }
 }
