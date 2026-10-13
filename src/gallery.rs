@@ -53,9 +53,9 @@ impl DiaryApp {
 
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("{} {}", photos.len(), if photos.len() == 1 { "picture" } else { "pictures" })).color(p.muted));
-            ui.add_space(12.0);
-            ui.label("Size");
-            ui.add(egui::Slider::new(&mut self.thumb_size, 80.0..=260.0).show_value(false));
+            ui.add_space(18.0);
+            ui.label(RichText::new("Thumbnail size").color(p.muted));
+            kit::slider(ui, &mut self.thumb_size, 80.0..=260.0, 170.0).on_hover_text("Drag to make the pictures smaller or bigger");
         });
         ui.add_space(6.0);
         if photos.is_empty() {

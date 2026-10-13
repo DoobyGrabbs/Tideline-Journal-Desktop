@@ -626,3 +626,28 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     ui.painter().circle_filled(Pos2::new(x, rect.center().y), 10.0, if *on { theme::BG } else { theme::TEXT_2 });
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
+
+/// A horizontal slider: a visible track filled with the accent colour up to a round knob.
+pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, width: f32) -> Response {
+    let (lo, hi) = (*range.start(), *range.end());
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 28.0), Sense::click_and_drag());
+    let pad = 10.0;
+    if let Some(pos) = resp.interact_pointer_pos().filter(|_| resp.dragged() || resp.clicked()) {
+        let t = ((pos.x - rect.min.x - pad) / (rect.width() - pad * 2.0)).clamp(0.0, 1.0);
+        let new = lo + (hi - lo) * t;
+        if (new - *value).abs() > f32::EPSILON {
+            *value = new;
+            resp.mark_changed();
+        }
+    }
+    let t = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
+    let accent = theme::shades().accent;
+    let track = egui::Rect::from_center_size(rect.center(), vec2(rect.width() - pad * 2.0, 6.0));
+    ui.painter().rect_filled(track, 3.0, theme::BORDER);
+    let x = track.min.x + track.width() * t;
+    ui.painter().rect_filled(egui::Rect::from_min_max(track.min, Pos2::new(x, track.max.y)), 3.0, accent);
+    let hot = resp.hovered() || resp.dragged();
+    ui.painter().circle_filled(Pos2::new(x, rect.center().y), if hot { 9.0 } else { 8.0 }, theme::TEXT);
+    ui.painter().circle_stroke(Pos2::new(x, rect.center().y), if hot { 9.0 } else { 8.0 }, Stroke::new(2.0, accent));
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}

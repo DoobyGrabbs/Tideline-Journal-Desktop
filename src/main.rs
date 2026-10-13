@@ -422,6 +422,9 @@ impl DiaryApp {
             app.insights.open = demo::wants("insights");
             app.show_pinned = demo::wants("pinned") || demo::wants("pinned-expanded");
             app.show_settings = demo::wants("settings");
+            if demo::wants("photos") {
+                app.view = CalView::Photos;
+            }
             if demo::wants("expanded") || demo::wants("pinned-expanded") {
                 app.expanded.insert(7);
             }
@@ -2594,7 +2597,7 @@ fn main() -> eframe::Result {
         .with_title("Tideline Journal")
         .with_decorations(false)
         .with_inner_size([1280.0, 760.0])
-        .with_min_inner_size([1200.0, 600.0]);
+        .with_min_inner_size([1200.0, 680.0]);
     let options = eframe::NativeOptions { viewport, ..Default::default() };
     eframe::run_native(
         "Tideline Journal",
