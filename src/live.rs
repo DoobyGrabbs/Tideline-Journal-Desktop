@@ -43,6 +43,10 @@ struct Out<'a> {
     st: &'a LiveStyle,
     /// Show Markdown marks on this line?
     marks: bool,
+    /// Characters laid out so far in the whole text (where the next piece starts).
+    pos: usize,
+    /// Character ranges of the marks that are hidden (so the cursor can step over them).
+    hidden: &'a mut Vec<(usize, usize)>,
 }
 
 impl Out<'_> {
@@ -78,6 +82,7 @@ impl Out<'_> {
             background: if look.code { self.st.ink.gamma_multiply(0.13) } else { Color32::TRANSPARENT },
             ..Default::default()
         };
+        self.pos += s.chars().count();
         self.job.append(s, 0.0, fmt);
     }
 
@@ -87,22 +92,34 @@ impl Out<'_> {
             return;
         }
         let size = self.st.size * if scale > 0.0 { scale } else { 1.0 };
+        let len = s.chars().count();
+        if !self.marks {
+            match self.hidden.last_mut() {
+                Some(last) if last.1 == self.pos => last.1 += len,
+                _ => self.hidden.push((self.pos, self.pos + len)),
+            }
+        }
         let fmt = if self.marks {
             TextFormat { font_id: FontId::proportional(size * 0.9), color: self.st.muted, ..Default::default() }
         } else {
             TextFormat { font_id: FontId::proportional(1.0), color: Color32::TRANSPARENT, ..Default::default() }
         };
+        self.pos += s.chars().count();
         self.job.append(s, 0.0, fmt);
     }
 
     /// A mark that stays visible (list bullets, quote bars, code fences).
     fn visible_mark(&mut self, s: &str, scale: f32) {
         let size = self.st.size * if scale > 0.0 { scale } else { 1.0 };
+        let family = if self.st.serif { crate::fonts::serif_bold() } else { bold_family() };
         let fmt = TextFormat {
-            font_id: FontId::new(size, bold_family()),
+            font_id: FontId::new(size, family),
             color: self.st.accent,
+            // The same line height as the text, so the marker sits on the same baseline.
+            line_height: (self.st.line_height > 1.0).then(|| size * self.st.line_height),
             ..Default::default()
         };
+        self.pos += s.chars().count();
         self.job.append(s, 0.0, fmt);
     }
 }
@@ -139,6 +156,17 @@ fn inline(chars: &[char], look: Look, out: &mut Out) {
     }
     while i < chars.len() {
         let rest = &chars[i..];
+        if starts(rest, "***") {
+            // Bold and italic together.
+            if let Some(j) = find(chars, i + 3, "***").filter(|&j| j > i + 3) {
+                flush!();
+                out.mark("***", look.scale);
+                inline(&chars[i + 3..j], Look { bold: true, italic: true, ..look }, out);
+                out.mark("***", look.scale);
+                i = j + 3;
+                continue;
+            }
+        }
         if starts(rest, "**") {
             if let Some(j) = find(chars, i + 2, "**").filter(|&j| j > i + 2) {
                 flush!();
@@ -240,7 +268,10 @@ fn style_line(line: &str, in_code: &mut bool, out: &mut Out) {
     if let Some(len) = bullet.or(numbered).or(quote) {
         let chars: Vec<char> = line.chars().collect();
         let marker_end = line[..indent + len].chars().count();
-        out.visible_mark(&s(&chars[..marker_end]), 1.0);
+        // A bullet list marker is drawn as a real bullet. It is still one character, so the cursor
+        // and the text stay in step with the Markdown underneath.
+        let marker: String = chars[..marker_end].iter().map(|c| if bullet.is_some() && matches!(c, '-' | '*' | '+') { '\u{2022}' } else { *c }).collect();
+        out.visible_mark(&marker, 1.0);
         inline(&chars[marker_end..], plain, out);
         return;
     }
@@ -251,10 +282,16 @@ fn style_line(line: &str, in_code: &mut bool, out: &mut Out) {
 /// Lay out `text` with its Markdown styling. `reveal` is the selected char range: lines it
 /// touches show their marks; `show_all` shows marks everywhere.
 pub fn layout(text: &str, reveal: Option<(usize, usize)>, show_all: bool, st: &LiveStyle, wrap: f32) -> LayoutJob {
+    layout_with_hidden(text, reveal, show_all, st, wrap).0
+}
+
+/// Like `layout`, and also the character ranges of the marks that are hidden.
+pub fn layout_with_hidden(text: &str, reveal: Option<(usize, usize)>, show_all: bool, st: &LiveStyle, wrap: f32) -> (LayoutJob, Vec<(usize, usize)>) {
     let mut job = LayoutJob::default();
     job.wrap.max_width = wrap;
     let plain_family = if st.serif { crate::fonts::serif() } else { FontFamily::Proportional };
     let plain = TextFormat { font_id: FontId::new(st.size, plain_family), color: st.ink, line_height: (st.line_height > 1.0).then(|| st.size * st.line_height), ..Default::default() };
+    let mut hidden = Vec::new();
 
     let mut in_code = false;
     let mut offset = 0usize;
@@ -262,7 +299,7 @@ pub fn layout(text: &str, reveal: Option<(usize, usize)>, show_all: bool, st: &L
     for (n, line) in lines.iter().enumerate() {
         let len = line.chars().count();
         let marks = show_all || reveal.is_some_and(|(a, b)| offset <= b && offset + len >= a);
-        style_line(line, &mut in_code, &mut Out { job: &mut job, st, marks });
+        style_line(line, &mut in_code, &mut Out { job: &mut job, st, marks, pos: offset, hidden: &mut hidden });
         if n + 1 < lines.len() {
             job.append("\n", 0.0, plain.clone());
         }
@@ -271,7 +308,7 @@ pub fn layout(text: &str, reveal: Option<(usize, usize)>, show_all: bool, st: &L
     if text.is_empty() {
         job.append("", 0.0, plain);
     }
-    job
+    (job, hidden)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -340,6 +377,12 @@ mod tests {
         LiveStyle { ink: Color32::BLACK, muted: Color32::GRAY, accent: Color32::BLUE, size: 16.0, serif: false, line_height: 1.0 }
     }
 
+
+    /// The laid-out text may draw a list marker as a bullet; every character still lines up with
+    /// the Markdown, so compare with all bullet-like characters treated as one.
+    fn same_text(s: &str) -> String {
+        s.chars().map(|c| if matches!(c, '\u{2022}' | '*' | '+' | '-') { '-' } else { c }).collect()
+    }
     #[test]
     fn layout_always_contains_exactly_the_text() {
         let docs = [
@@ -356,9 +399,9 @@ mod tests {
         for doc in docs {
             for reveal in [None, Some((0, 0)), Some((0, 1000))] {
                 let job = layout(doc, reveal, false, &style(), 400.0);
-                assert_eq!(job.text, doc, "doc {doc:?} reveal {reveal:?}");
+                assert_eq!(same_text(&job.text), same_text(doc), "doc {doc:?} reveal {reveal:?}");
             }
-            assert_eq!(layout(doc, None, true, &style(), 400.0).text, doc);
+            assert_eq!(same_text(&layout(doc, None, true, &style(), 400.0).text), same_text(doc));
         }
     }
 
@@ -385,6 +428,41 @@ mod tests {
         assert_eq!(marker.1, 1.0);
     }
 
+
+    #[test]
+    fn hidden_marks_are_reported_so_the_cursor_can_step_over_them() {
+        let hidden = |doc: &str, show_all: bool| layout_with_hidden(doc, None, show_all, &style(), 400.0).1;
+        assert_eq!(hidden("x **bold** y", false), vec![(2, 4), (8, 10)]);
+        assert_eq!(hidden("## Title", false), vec![(0, 3)]);
+        assert_eq!(hidden("a *i* and ~~s~~", false), vec![(2, 3), (4, 5), (10, 12), (13, 15)]);
+        // Marks on the second line are counted from the start of the whole text.
+        assert_eq!(hidden("ab\n**c**", false), vec![(3, 5), (6, 8)]);
+        // Nothing is hidden when the marks are shown, and plain text has none.
+        assert!(hidden("x **bold** y", true).is_empty());
+        assert!(hidden("just words", false).is_empty());
+        assert!(hidden("", false).is_empty());
+        // Unmatched marks are ordinary text.
+        assert!(hidden("2 * 3 ** 4", false).is_empty());
+    }
+
+    #[test]
+    fn bullet_markers_are_drawn_as_bullets_one_character_each() {
+        let job = layout("- one\n  * two\nplain - dash", None, false, &style(), 400.0);
+        assert_eq!(job.text, "\u{2022} one\n  \u{2022} two\nplain - dash");
+        assert_eq!(job.text.chars().count(), "- one\n  * two\nplain - dash".chars().count());
+    }
+
+    #[test]
+    fn bold_and_italic_together_hide_all_three_stars() {
+        let hidden = |doc: &str| layout_with_hidden(doc, None, false, &style(), 400.0).1;
+        assert_eq!(hidden("***hello*** world"), vec![(0, 3), (8, 11)]);
+        assert_eq!(hidden("a **b *c* d** e"), vec![(2, 4), (6, 7), (8, 9), (11, 13)]);
+        // Both styles are applied to the words.
+        let job = layout("***hello***", None, false, &style(), 400.0);
+        let word = job.sections.iter().find(|s| &job.text[usize::from(s.byte_range.start)..usize::from(s.byte_range.end)] == "hello").unwrap();
+        assert_eq!(word.format.font_id.family, bold_family());
+        assert!(word.format.italics);
+    }
     #[test]
     fn bold_text_uses_the_bold_family() {
         let job = layout("a **b** c", None, false, &style(), 400.0);
@@ -427,4 +505,10 @@ mod tests {
         assert_eq!(join(&split("a\n![x](img:i1)\nb")), "a\n![x](img:i1)\nb");
         assert_eq!(join(&split("hello")), "hello");
     }
+}
+
+/// Where the Markdown marks are in `text` (character ranges), whether or not they are shown.
+pub fn hidden_marks(text: &str) -> Vec<(usize, usize)> {
+    let st = LiveStyle { ink: Color32::WHITE, muted: Color32::GRAY, accent: Color32::WHITE, size: 16.0, serif: false, line_height: 1.0 };
+    layout_with_hidden(text, None, false, &st, 1000.0).1
 }

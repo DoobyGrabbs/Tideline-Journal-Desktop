@@ -35,7 +35,6 @@ pub enum Icon {
     Back,
     Clock,
     Paperclip,
-    Code,
     Bullets,
     Numbers,
     Quote,
@@ -209,10 +208,6 @@ pub fn paint(painter: &egui::Painter, center: Pos2, size: f32, color: Color32, i
             pts.extend(arc(7.985, 15.985, 2.0, 45.0, 225.0));
             pts.push((15.06, 6.09));
             line(&pts);
-        }
-        Icon::Code => {
-            line(&[(9.0, 7.0), (4.0, 12.0), (9.0, 17.0)]);
-            line(&[(15.0, 7.0), (20.0, 12.0), (15.0, 17.0)]);
         }
         Icon::Bullets => {
             for y in [7.0, 12.0, 17.0] {

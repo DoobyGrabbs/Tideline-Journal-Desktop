@@ -458,7 +458,6 @@ pub enum Format {
     Bold,
     Italic,
     Strike,
-    Code,
     Heading(u8),
     Bullet,
     Numbered,
@@ -475,7 +474,6 @@ pub fn apply(text: &mut String, sel: (usize, usize), format: Format) -> (usize, 
         Format::Bold => wrap(&mut chars, a, b, "**"),
         Format::Italic => wrap(&mut chars, a, b, "*"),
         Format::Strike => wrap(&mut chars, a, b, "~~"),
-        Format::Code => wrap(&mut chars, a, b, "`"),
         Format::Heading(n) => prefix_lines(&mut chars, a, b, |_| format!("{} ", "#".repeat(n as usize))),
         Format::Bullet => prefix_lines(&mut chars, a, b, |_| "- ".to_string()),
         Format::Numbered => prefix_lines(&mut chars, a, b, |i| format!("{}. ", i + 1)),
@@ -488,7 +486,16 @@ pub fn apply(text: &mut String, sel: (usize, usize), format: Format) -> (usize, 
 fn wrap(chars: &mut Vec<char>, a: usize, b: usize, marker: &str) -> (usize, usize) {
     let m: Vec<char> = marker.chars().collect();
     let n = m.len();
-    let wrapped = a >= n && chars[a - n..a] == m[..] && chars.len() >= b + n && chars[b..b + n] == m[..];
+    // Asterisks next to the selection: one pair is italic, two are bold, three are both. So italic
+    // is on when the pair count is odd, and bold when there are at least two on each side.
+    let stars_before = chars[..a].iter().rev().take_while(|c| **c == '*').count();
+    let stars_after = chars[b..].iter().take_while(|c| **c == '*').count();
+    let around = stars_before.min(stars_after);
+    let wrapped = if m[0] == '*' {
+        if n == 1 { around % 2 == 1 } else { around >= 2 }
+    } else {
+        a >= n && chars[a - n..a] == m[..] && chars.len() >= b + n && chars[b..b + n] == m[..]
+    };
     if wrapped {
         // Already wrapped: remove the markers.
         chars.drain(b..b + n);
@@ -633,8 +640,8 @@ mod tests {
 
         // Multi-byte characters don't break char/byte handling.
         let mut s = "héllo wörld".to_string();
-        apply(&mut s, (6, 11), Format::Code);
-        assert_eq!(s, "héllo `wörld`");
+        apply(&mut s, (6, 11), Format::Italic);
+        assert_eq!(s, "héllo *wörld*");
     }
 }
 
@@ -736,6 +743,47 @@ pub fn join_title(title: &str, body: &str) -> String {
 mod title_tests {
     use super::*;
 
+
+    #[test]
+    fn bold_toggles_off_again_however_the_visible_text_was_selected() {
+        // Select "hello" and make it bold.
+        let mut t = "hello world".to_string();
+        let sel = apply(&mut t, (0, 5), Format::Bold);
+        assert_eq!((t.as_str(), sel), ("**hello** world", (2, 7)));
+        let hidden = [(0, 2), (7, 9)];
+        // The visible word can be selected with its edges on the hidden marks, outside them,
+        // or in the middle of them: every way of doing it takes the bold off again.
+        for edges in [(2, 7), (0, 9), (1, 8), (0, 7), (2, 9), (9, 0)] {
+            let mut text = t.clone();
+            let tight = tighten_selection(edges, &hidden);
+            assert_eq!(tight, (2, 7), "edges {edges:?}");
+            let sel = apply(&mut text, tight, Format::Bold);
+            assert_eq!((text.as_str(), sel), ("hello world", (0, 5)), "edges {edges:?}");
+        }
+        // A selection that is not at the marks is left as it is, and so is a plain cursor.
+        assert_eq!(tighten_selection((10, 14), &hidden), (10, 14));
+        assert_eq!(tighten_selection((3, 3), &hidden), (3, 3));
+        // Selecting only part of the bold word wraps just that part (nesting is not attempted).
+        assert_eq!(tighten_selection((3, 5), &hidden), (3, 5));
+    }
+
+    #[test]
+    fn italic_on_bold_text_adds_italic_instead_of_stripping_the_bold() {
+        let mut t = "**word**".to_string();
+        let sel = apply(&mut t, (2, 6), Format::Italic);
+        assert_eq!(t, "***word***");
+        // And italic comes off again, leaving the bold.
+        apply(&mut t, sel, Format::Italic);
+        assert_eq!(t, "**word**");
+        // Plain italic still toggles.
+        let mut t = "a *b* c".to_string();
+        apply(&mut t, (3, 4), Format::Italic);
+        assert_eq!(t, "a b c");
+        // Bold comes off bold-italic, leaving the italic.
+        let mut t = "***word***".to_string();
+        apply(&mut t, (3, 7), Format::Bold);
+        assert_eq!(t, "*word*");
+    }
     #[test]
     fn a_first_line_heading_is_the_title() {
         assert_eq!(split_title("# Long walk\n\nThe tide was out."), (Some("Long walk".into()), "The tide was out.".into()));
@@ -757,4 +805,21 @@ mod title_tests {
             assert_eq!(join_title(&t.unwrap_or_default(), &b), text);
         }
     }
+}
+
+/// Pull the edges of a selection in past any hidden formatting marks, so that selecting the
+/// visible text of `**bold**` means the text between the marks however the edges landed (on the
+/// marks, or just outside them). `hidden` is the list of mark ranges (see `live::hidden_marks`).
+pub fn tighten_selection(sel: (usize, usize), hidden: &[(usize, usize)]) -> (usize, usize) {
+    let (mut a, mut b) = (sel.0.min(sel.1), sel.0.max(sel.1));
+    if a == b {
+        return (a, b);
+    }
+    if let Some(run) = hidden.iter().find(|h| h.0 <= a && a < h.1) {
+        a = run.1;
+    }
+    if let Some(run) = hidden.iter().find(|h| h.0 < b && b <= h.1) {
+        b = run.0;
+    }
+    if a > b { (sel.0.min(sel.1), sel.0.max(sel.1)) } else { (a, b) }
 }

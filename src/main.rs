@@ -2679,7 +2679,11 @@ fn format_selection(ctx: &egui::Context, id: egui::Id, text: &mut String, format
         .cursor
         .char_range()
         .map_or((end, end), |r| (usize::from(r.primary.index), usize::from(r.secondary.index)));
-    let (s, e) = markdown::apply(text, (a.min(b), a.max(b)), format);
+    let mut sel = (a.min(b), a.max(b));
+    if matches!(format, markdown::Format::Bold | markdown::Format::Italic | markdown::Format::Strike) {
+        sel = markdown::tighten_selection(sel, &live::hidden_marks(text));
+    }
+    let (s, e) = markdown::apply(text, sel, format);
     state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(s), CCursor::new(e))));
     state.store(ctx, id);
     ctx.memory_mut(|m| m.request_focus(id));
@@ -2835,7 +2839,9 @@ mod tests {
                     ui.fonts_mut(|f| f.layout_job(live::layout(t.as_str(), None, false, &st, wrap)))
                 };
                 let shown = egui::TextEdit::multiline(&mut text).layouter(&mut layouter).show(ui);
-                assert_eq!(shown.galley.text(), "# Title **b** `c`\n- item *i*\n\nplain");
+                // The bullet is drawn as a bullet, one character for one character.
+                assert_eq!(shown.galley.text(), "# Title **b** `c`\n\u{2022} item *i*\n\nplain");
+                assert_eq!(shown.galley.text().chars().count(), text.chars().count());
             });
             out.textures_delta.clear();
         }
@@ -3734,6 +3740,141 @@ More words.".into();
         out.textures_delta.clear();
         app.lock_now();
         assert!(!app.show_settings, "locking closes Settings");
+    }
+
+    /// Run one frame in which `key` is pressed, calling `f` inside it.
+    fn press_key_in(ctx: &egui::Context, key: egui::Key, f: &mut dyn FnMut(&egui::Context)) {
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
+        let mut out = ctx.run_ui(input, |ui| f(ui.ctx()));
+        out.textures_delta.clear();
+    }
+
+    fn cursor_of(ctx: &egui::Context, id: egui::Id) -> usize {
+        usize::from(egui::TextEdit::load_state(ctx, id).unwrap().cursor.char_range().unwrap().primary.index)
+    }
+
+    #[test]
+    fn the_cursor_steps_over_hidden_marks_and_backspace_works_on_what_you_can_see() {
+        use egui::Key;
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        let id = seg_id(0);
+        let style = live::LiveStyle { ink: Color32::WHITE, muted: Color32::GRAY, accent: Color32::BLUE, size: 16.0, serif: false, line_height: 1.0 };
+        let hidden_of = |t: &str| live::layout_with_hidden(t, None, false, &style, 400.0).1;
+        let step = |text: &mut String, key: Key, at: usize, ctx: &egui::Context| {
+            focus_at(ctx, id, text, at);
+            let hidden = hidden_of(text);
+            let mut changed = false;
+            press_key_in(ctx, key, &mut |c| changed = editor::step_over_hidden_marks(c, id, text, &hidden));
+            changed
+        };
+
+        // "a **b** c": hidden runs at 2..4 and 5..7.
+        let mut t = "a **b** c".to_string();
+        assert!(!step(&mut t, Key::ArrowLeft, 4, &ctx));
+        assert_eq!(cursor_of(&ctx, id), 2, "Left from after the opening marks goes to before them");
+        step(&mut t, Key::ArrowRight, 2, &ctx);
+        assert_eq!(cursor_of(&ctx, id), 4, "Right crosses the opening marks");
+        step(&mut t, Key::ArrowRight, 5, &ctx);
+        assert_eq!(cursor_of(&ctx, id), 7, "and the closing ones, so you can type after the bold text");
+        // Backspace at the start of the bold text deletes the visible space before it.
+        assert!(step(&mut t, Key::Backspace, 4, &ctx));
+        assert_eq!(t, "a**b** c");
+        assert_eq!(cursor_of(&ctx, id), 1);
+        // Delete at the end of the bold text deletes the space after the closing marks.
+        let mut t = "a **b** c".to_string();
+        assert!(step(&mut t, Key::Delete, 5, &ctx));
+        assert_eq!(t, "a **b**c");
+        // Away from any marks the keys are left alone.
+        let mut t = "a **b** c".to_string();
+        assert!(!step(&mut t, Key::Backspace, 1, &ctx));
+        assert_eq!(t, "a **b** c");
+
+        // Backspace at the start of a heading turns it back into a paragraph.
+        let mut t = "## Title".to_string();
+        assert!(step(&mut t, Key::Backspace, 3, &ctx));
+        assert_eq!(t, "Title");
+        assert_eq!(cursor_of(&ctx, id), 0);
+
+        // A click that lands inside a run of marks is moved to the end of it.
+        let t = "a **b** c".to_string();
+        focus_at(&ctx, id, &t, 3);
+        editor::snap_out_of_marks(&ctx, id, &t, &hidden_of(&t));
+        assert_eq!(cursor_of(&ctx, id), 4);
+        // With multi-byte text the positions still line up.
+        let mut t = "é **ü** ö".to_string();
+        step(&mut t, Key::ArrowRight, 2, &ctx);
+        assert_eq!(cursor_of(&ctx, id), 4);
+    }
+
+    #[test]
+    fn prompts_go_in_at_the_cursor_one_after_another() {
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        let id = seg_id(0);
+        // Empty page.
+        let mut ed = editor_state("");
+        DiaryApp::insert_prompt_at_cursor(&ctx, &mut ed, "What went well?");
+        assert_eq!(ed.text, "## What went well?\n\n");
+        assert_eq!(ed.want_focus, Some((0, 20)));
+        assert_eq!(ed.prompt_offset, 1);
+        // Below some writing, with the cursor at the end: a blank line first.
+        let mut ed = editor_state("Morning notes.");
+        focus_at(&ctx, id, &ed.text, 14);
+        DiaryApp::insert_prompt_at_cursor(&ctx, &mut ed, "Q1");
+        assert_eq!(ed.text, "Morning notes.\n\n## Q1\n\n");
+        // In the middle of a line the text after the cursor moves below the prompt.
+        let mut ed = editor_state("one two");
+        focus_at(&ctx, id, &ed.text, 4);
+        DiaryApp::insert_prompt_at_cursor(&ctx, &mut ed, "Q2");
+        assert_eq!(ed.text, "one \n\n## Q2\n\ntwo");
+        assert_eq!(ed.want_focus, Some((0, 13)));
+        // A second prompt after the first one, with writing between.
+        let mut ed = editor_state("## Q1\n\nAnswer one.\n");
+        focus_at(&ctx, id, &ed.text, 19);
+        DiaryApp::insert_prompt_at_cursor(&ctx, &mut ed, "Q2");
+        assert_eq!(ed.text, "## Q1\n\nAnswer one.\n\n## Q2\n\n");
+        assert_eq!(ed.prompt_offset, 1);
+        // Pictures are left alone: it goes in the text block that has the cursor.
+        let mut ed = editor_state("before\n![pic](img:abc)\nafter");
+        ed.focus = 2;
+        DiaryApp::insert_prompt_at_cursor(&ctx, &mut ed, "Q3");
+        assert!(ed.text.contains("![pic](img:abc)") && ed.text.contains("## Q3"));
+        assert!(ed.text.starts_with("before\n![pic](img:abc)\nafter"), "{:?}", ed.text);
+    }
+
+    #[test]
+    fn the_bold_button_toggles_bold_on_and_off_in_the_editor() {
+        use egui::text::{CCursor, CCursorRange};
+        let ctx = egui::Context::default();
+        setup_style(&ctx);
+        let id = seg_id(0);
+        let select = |a: usize, b: usize| {
+            let mut state = egui::TextEdit::load_state(&ctx, id).unwrap_or_default();
+            state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(a), CCursor::new(b))));
+            state.store(&ctx, id);
+        };
+        // The steps from the bug report: type, select it, Bold, select it again, Bold again.
+        for second in [(2, 7), (0, 9), (1, 8), (9, 0)] {
+            let mut ed = editor_state("hello world");
+            select(0, 5);
+            apply_format(&ctx, &mut ed, markdown::Format::Bold);
+            assert_eq!(ed.text, "**hello** world");
+            select(second.0, second.1);
+            apply_format(&ctx, &mut ed, markdown::Format::Bold);
+            assert_eq!(ed.text, "hello world", "second selection {second:?}");
+        }
+        // Bold, then italic on the same word, then each off again.
+        let mut ed = editor_state("hello world");
+        select(0, 5);
+        apply_format(&ctx, &mut ed, markdown::Format::Bold);
+        select(0, 9);
+        apply_format(&ctx, &mut ed, markdown::Format::Italic);
+        assert_eq!(ed.text, "***hello*** world");
+        select(0, 11);
+        apply_format(&ctx, &mut ed, markdown::Format::Italic);
+        assert_eq!(ed.text, "**hello** world");
     }
     #[test]
     fn choosing_a_colour_theme_recolours_the_app_and_is_remembered() {

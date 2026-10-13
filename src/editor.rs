@@ -196,7 +196,7 @@ impl DiaryApp {
                         });
 
                         // A gentle nudge for a blank page; it disappears as soon as you start writing.
-                        if data.settings.show_prompts && !ed.has_content() {
+                        if data.settings.show_prompts {
                             let prompt = templates::prompt_for(ed.date, ed.prompt_offset);
                             let card = egui::Frame::new()
                                 .fill(shades.prompt_bg)
@@ -224,8 +224,7 @@ impl DiaryApp {
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 10.0;
                                         if kit::small_button(ui, Look::Primary, None, "Use this prompt").clicked() {
-                                            ed.text = format!("## {prompt}\n\n");
-                                            ed.want_focus = Some((usize::MAX, usize::MAX));
+                                            DiaryApp::insert_prompt_at_cursor(&ctx, ed, prompt);
                                         }
                                         if kit::small_button(ui, Look::Ghost, None, "Another").clicked() {
                                             ed.prompt_offset += 1;
@@ -252,7 +251,6 @@ impl DiaryApp {
                                             (Tool::Icon(Icon::Bullets), "Bulleted list", Bullet),
                                             (Tool::Icon(Icon::Numbers), "Numbered list", Numbered),
                                             (Tool::Icon(Icon::Quote), "Quote", Quote),
-                                            (Tool::Icon(Icon::Code), "Code", Code),
                                         ],
                                     ];
                                     for (n, group) in groups.iter().enumerate() {
@@ -375,13 +373,14 @@ impl DiaryApp {
                                                 focus_at(&ctx, id, s, pos);
                                                 ed.want_focus = None;
                                             }
-                                            // Marks show on the lines the cursor or selection touches.
-                                            let reveal = egui::TextEdit::load_state(&ctx, id).and_then(|state| state.cursor.char_range()).map(|r| {
-                                                let (a, b) = (usize::from(r.primary.index), usize::from(r.secondary.index));
-                                                (a.min(b), a.max(b))
-                                            });
+                                            // Formatting marks stay hidden unless the option is on; the cursor steps over them.
+                                            let mut keys_edited = false;
+                                            if !marks && ctx.memory(|m| m.has_focus(id)) {
+                                                let hidden = live::layout_with_hidden(s.as_str(), None, false, &st, 1000.0).1;
+                                                keys_edited = step_over_hidden_marks(&ctx, id, s, &hidden);
+                                            }
                                             let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
-                                                let job = live::layout(text.as_str(), reveal, marks, &st, wrap);
+                                                let job = live::layout(text.as_str(), None, marks, &st, wrap);
                                                 ui.fonts_mut(|f| f.layout_job(job))
                                             };
                                             let last = i == count - 1;
@@ -395,7 +394,11 @@ impl DiaryApp {
                                                     .desired_rows(if last { rows.max(8) } else { 1 })
                                                     .layouter(&mut layouter),
                                             );
-                                            changed |= resp.changed();
+                                            changed |= resp.changed() || keys_edited;
+                                            if !marks && resp.has_focus() && ctx.input(|i| !i.events.is_empty()) {
+                                                let hidden = live::layout_with_hidden(s.as_str(), None, false, &st, 1000.0).1;
+                                                snap_out_of_marks(&ctx, id, s.as_str(), &hidden);
+                                            }
                                             if resp.has_focus() {
                                                 ed.focus = i;
                                                 // Let the arrow keys travel past pictures into the next text block.
@@ -584,5 +587,111 @@ impl DiaryApp {
         self.month = ed.date.with_day(1).unwrap();
         self.editor_msg.clear();
         self.persist();
+    }
+}
+
+// ---- hidden formatting marks -----------------------------------------------------------------
+//
+// With "Show formatting marks" off, the Markdown marks (`**`, `#`, ...) are laid out invisibly.
+// These helpers make the cursor treat each hidden run of marks as if it were not there: arrow
+// keys step across it, Backspace and Delete remove the visible character beside it, and a click
+// never leaves the cursor inside a mark.
+
+fn char_to_byte(text: &str, chars: usize) -> usize {
+    text.char_indices().nth(chars).map_or(text.len(), |(i, _)| i)
+}
+
+fn remove_chars(text: &mut String, from: usize, to: usize) {
+    let (a, b) = (char_to_byte(text, from), char_to_byte(text, to));
+    text.replace_range(a..b, "");
+}
+
+fn collapsed_cursor(ctx: &egui::Context, id: egui::Id) -> Option<usize> {
+    let r = egui::TextEdit::load_state(ctx, id)?.cursor.char_range()?;
+    (r.primary.index == r.secondary.index).then(|| usize::from(r.primary.index))
+}
+
+/// Handle Left, Right, Backspace and Delete next to a hidden run of marks. Returns true if the
+/// text was changed.
+pub(crate) fn step_over_hidden_marks(ctx: &egui::Context, id: egui::Id, text: &mut String, hidden: &[(usize, usize)]) -> bool {
+    use egui::Key;
+    let Some(p) = collapsed_cursor(ctx, id) else { return false };
+    let before = hidden.iter().find(|h| h.1 == p).copied();
+    let after = hidden.iter().find(|h| h.0 == p).copied();
+    let pressed = |key: Key| ctx.input(|i| i.key_pressed(key) && i.modifiers.is_none());
+    let consume = |key: Key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key));
+    let len = text.chars().count();
+    match (before, after) {
+        (Some(run), _) if pressed(Key::ArrowLeft) => {
+            consume(Key::ArrowLeft);
+            focus_at(ctx, id, text, run.0);
+        }
+        (_, Some(run)) if pressed(Key::ArrowRight) => {
+            consume(Key::ArrowRight);
+            focus_at(ctx, id, text, run.1);
+        }
+        (Some(run), _) if pressed(Key::Backspace) => {
+            consume(Key::Backspace);
+            if text.chars().nth(run.0) == Some('#') {
+                // Backspace at the start of a heading turns it back into a plain paragraph.
+                remove_chars(text, run.0, run.1);
+                focus_at(ctx, id, text, run.0);
+                return true;
+            }
+            if run.0 > 0 {
+                remove_chars(text, run.0 - 1, run.0);
+                focus_at(ctx, id, text, run.0 - 1);
+                return true;
+            }
+        }
+        (_, Some(run)) if pressed(Key::Delete) => {
+            consume(Key::Delete);
+            if run.1 < len {
+                remove_chars(text, run.1, run.1 + 1);
+                focus_at(ctx, id, text, run.0);
+                return true;
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
+/// If the cursor ended up inside a hidden run (after a click or an up/down move), move it to
+/// the end of the run.
+pub(crate) fn snap_out_of_marks(ctx: &egui::Context, id: egui::Id, text: &str, hidden: &[(usize, usize)]) {
+    let Some(p) = collapsed_cursor(ctx, id) else { return };
+    if let Some(run) = hidden.iter().find(|h| h.0 < p && p < h.1) {
+        focus_at(ctx, id, text, run.1);
+    }
+}
+
+impl DiaryApp {
+    /// Put a writing prompt into the entry as a heading at the cursor, on a line of its own, and
+    /// leave the cursor on the empty line below it ready to write.
+    pub(crate) fn insert_prompt_at_cursor(ctx: &egui::Context, ed: &mut EditState, prompt: &str) {
+        let mut segs = live::split(&ed.text);
+        let mut idx = ed.focus.min(segs.len() - 1);
+        if !matches!(segs[idx], live::Seg::Text(_)) {
+            idx = segs.iter().rposition(|s| matches!(s, live::Seg::Text(_))).unwrap_or(0);
+        }
+        let live::Seg::Text(text) = &mut segs[idx] else { return };
+        let chars: Vec<char> = text.chars().collect();
+        let at = collapsed_cursor(ctx, seg_id(idx)).unwrap_or(chars.len()).min(chars.len());
+        let before = &chars[..at];
+        let lead = if before.is_empty() || before.ends_with(&['\n', '\n']) {
+            ""
+        } else if before.ends_with(&['\n']) {
+            "\n"
+        } else {
+            "\n\n"
+        };
+        let inserted = format!("{lead}## {prompt}\n\n");
+        let new_pos = at + inserted.chars().count();
+        let byte = char_to_byte(text, at);
+        text.insert_str(byte, &inserted);
+        ed.text = live::join(&segs);
+        ed.want_focus = Some((idx, new_pos));
+        ed.prompt_offset += 1;
     }
 }
