@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Tideline Journal – User guide</title>
+<style>
+@font-face { font-family: "Hanken Grotesk"; src: url("../../assets/fonts/HankenGrotesk.ttf") format("truetype"); font-weight: 100 900; font-style: normal; }
+@font-face { font-family: "Newsreader"; src: url("../../assets/fonts/Newsreader.ttf") format("truetype"); font-weight: 200 800; font-style: normal; }
+@font-face { font-family: "Newsreader"; src: url("../../assets/fonts/Newsreader-Italic.ttf") format("truetype"); font-weight: 200 800; font-style: italic; }
+
+:root {
+  --ink: #1c2127;
+  --ink-2: #4a525c;
+  --ink-3: #7a828c;
+  --line: #dfe3e7;
+  --night: #111418;
+  --slate: #1c2127;
+  --tide: #2f9a8c;
+  --tide-deep: #1d6e63;
+  --tide-soft: #e6f3f1;
+  --lamp: #e7b15a;
+  --lamp-soft: #fbf3e3;
+  --rose: #c8563f;
+  --rose-soft: #fbece8;
+}
+@page {
+  size: A4;
+  margin: 20mm 17mm 22mm 17mm;
+  @bottom-center { content: counter(page); font-family: "Hanken Grotesk"; font-size: 9pt; color: #7a828c; }
+  @bottom-left { content: "Tideline Journal – User guide"; font-family: "Hanken Grotesk"; font-size: 8pt; color: #a3aab2; }
+}
+@page :first { margin: 0; @bottom-center { content: none; } @bottom-left { content: none; } }
+
+* { box-sizing: border-box; }
+html { font-family: "Hanken Grotesk", "Segoe UI", sans-serif; font-weight: 450; font-size: 10.2pt; line-height: 1.55; color: var(--ink); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; }
+p { margin: 0 0 3.2mm; orphans: 3; widows: 3; }
+a { color: var(--tide-deep); text-decoration: none; }
+strong { font-weight: 650; }
+em { font-family: "Newsreader", serif; font-size: 1.05em; }
+
+h1, h2, h3 { font-family: "Newsreader", Georgia, serif; font-weight: 500; color: var(--night); break-after: avoid; }
+h1 { font-size: 26pt; line-height: 1.1; margin: 0 0 5mm; padding-top: 2mm; letter-spacing: -0.2pt; }
+h1 .num { display: block; font-family: "Hanken Grotesk"; font-size: 8.5pt; font-weight: 650; letter-spacing: 1.6pt; text-transform: uppercase; color: var(--tide-deep); margin-bottom: 2mm; }
+h2 { font-size: 15.5pt; margin: 8mm 0 2.5mm; }
+h3 { font-size: 12pt; margin: 5mm 0 1.5mm; font-weight: 600; }
+.chapter { margin-top: 15mm; }
+.chapter.newpage { break-before: page; margin-top: 0; }
+h1 + .lead, h2 + p, h2 + figure, h3 + p, h3 + figure { break-before: avoid; }
+.lead { font-family: "Newsreader", serif; font-size: 13pt; line-height: 1.5; color: var(--ink-2); margin-bottom: 6mm; }
+
+ul, ol { margin: 0 0 3.5mm; padding-left: 5.5mm; }
+li { margin-bottom: 1.3mm; }
+li::marker { color: var(--tide-deep); }
+
+kbd { font-family: "Hanken Grotesk"; font-size: 8.6pt; font-weight: 600; background: #eef0f2; border: 0.3mm solid #cdd2d7; border-bottom-width: 0.6mm; border-radius: 1.3mm; padding: 0 1.5mm; white-space: nowrap; color: #2a3039; }
+.btn { font-weight: 650; background: #eef6f4; color: var(--tide-deep); border-radius: 1.4mm; padding: 0 1.6mm; white-space: nowrap; }
+.menu { font-weight: 650; color: var(--night); }
+
+figure { margin: 4mm 0 5mm; break-inside: avoid; }
+figure img { display: block; width: 92%; margin: 0 auto; border-radius: 2.4mm; border: 0.3mm solid #2a3039; box-shadow: 0 1mm 3mm rgba(17,20,24,0.18); }
+figure.narrow img { width: auto; max-width: 74%; max-height: 118mm; margin: 0 auto; }
+figure.small img { width: auto; max-width: 92%; margin: 0 auto; }
+figcaption { font-size: 8.6pt; color: var(--ink-3); margin-top: 1.8mm; text-align: center; }
+.annot { position: relative; }
+.annot .pin { position: absolute; width: 6.4mm; height: 6.4mm; border-radius: 50%; background: var(--lamp); color: var(--night); font-weight: 700; font-size: 9pt; display: flex; align-items: center; justify-content: center; border: 0.5mm solid #fff; box-shadow: 0 0.6mm 1.6mm rgba(0,0,0,0.4); transform: translate(-50%, -50%); }
+
+.callout { border-radius: 2.4mm; padding: 3mm 4mm; margin: 4mm 0; break-inside: avoid; font-size: 9.7pt; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .label { display: block; font-size: 7.8pt; letter-spacing: 1.4pt; text-transform: uppercase; font-weight: 700; margin-bottom: 1mm; }
+.tip { background: var(--tide-soft); border-left: 1.2mm solid var(--tide); } .tip .label { color: var(--tide-deep); }
+.note { background: var(--lamp-soft); border-left: 1.2mm solid var(--lamp); } .note .label { color: #8a5f12; }
+.warn { background: var(--rose-soft); border-left: 1.2mm solid var(--rose); } .warn .label { color: #9b3a26; }
+
+table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm; font-size: 9.4pt; break-inside: avoid; }
+th { text-align: left; font-size: 7.8pt; letter-spacing: 1.2pt; text-transform: uppercase; color: var(--ink-3); font-weight: 650; padding: 1.6mm 2.4mm; border-bottom: 0.4mm solid var(--ink); }
+td { padding: 2mm 2.4mm; border-bottom: 0.25mm solid var(--line); vertical-align: top; }
+tr { break-inside: avoid; }
+td:first-child { white-space: nowrap; font-weight: 600; width: 34%; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+
+.steps { counter-reset: step; list-style: none; padding-left: 0; }
+.steps li { counter-increment: step; position: relative; padding-left: 9mm; margin-bottom: 2.4mm; }
+.steps li::before { content: counter(step); position: absolute; left: 0; top: 0.2mm; width: 6mm; height: 6mm; border-radius: 50%; background: var(--tide); color: #fff; font-weight: 700; font-size: 8.6pt; display: flex; align-items: center; justify-content: center; }
+
+/* Cover */
+.cover { height: 297mm; background: var(--night); color: #ece7dd; position: relative; overflow: hidden; break-after: page; }
+.cover .band { position: absolute; left: 0; right: 0; top: 0; height: 9mm; background: var(--tide); }
+.cover .inner { position: absolute; left: 24mm; right: 24mm; top: 70mm; }
+.cover .mark { width: 30mm; height: 30mm; border-radius: 8mm; background: #15302d; display: flex; align-items: center; justify-content: center; margin-bottom: 14mm; }
+.cover h1c { display: block; font-family: "Newsreader", serif; font-size: 46pt; line-height: 1.05; font-weight: 500; }
+.cover h1c i { color: #a9afb8; }
+.cover .sub { font-family: "Newsreader", serif; font-style: italic; font-size: 17pt; color: #8b929c; margin-top: 5mm; }
+.cover .kind { margin-top: 26mm; font-size: 10pt; letter-spacing: 3pt; text-transform: uppercase; color: var(--tide); font-weight: 650; }
+.cover .foot { position: absolute; left: 24mm; bottom: 20mm; font-size: 9pt; color: #6b727c; }
+
+/* Contents */
+.toc h1 { margin-bottom: 7mm; }
+.toc ol { list-style: none; padding: 0; margin: 0; columns: 2; column-gap: 12mm; }
+.toc li { margin: 0 0 2.4mm; break-inside: avoid; }
+.toc a { color: var(--ink); font-weight: 600; }
+.toc small { display: block; font-weight: 450; color: var(--ink-3); font-size: 8.8pt; line-height: 1.35; }
+.toc .n { display: inline-block; width: 7mm; color: var(--tide-deep); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="cover">
+  <div class="band"></div>
+  <div class="inner">
+    <div class="mark">
+      <svg width="20mm" height="20mm" viewBox="0 0 24 24" fill="none" stroke="#4FB3A5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0"/><path d="M5.5 14.5c1.6-1.4 3.1-1.4 4.6 0s3.1 1.4 4.6 0 3.1-1.4 3.8 0"/><circle cx="12" cy="8.2" r="1.6" fill="#4FB3A5" stroke="none"/>
+      </svg>
+    </div>
+    <div style="font-family:'Newsreader',serif;font-size:46pt;line-height:1.05;font-weight:500">Tideline <i style="color:#a9afb8">Journal</i></div>
+    <div class="sub">Every day leaves a mark.</div>
+    <div class="kind">User guide</div>
+  </div>
+  <div class="foot">A private, encrypted journal for Windows. This guide covers every part of the program.</div>
+</section>
+
+<!-- ============================ CONTENTS ============================ -->
+<section class="toc" style="break-after: page">
+  <h1>Contents</h1>
+  <ol>
+    <li><span class="n">1</span><a href="#start">Getting started</a><small>Create your journal, lock and unlock, find your way around</small></li>
+    <li><span class="n">2</span><a href="#calendar">The calendar</a><small>Year, Month, Week and Day views; moving and dragging entries</small></li>
+    <li><span class="n">3</span><a href="#daypanel">The day panel</a><small>Reading, pinning, opening and deleting a day’s entries</small></li>
+    <li><span class="n">4</span><a href="#writing">Writing an entry</a><small>Details, mood, prompts, formatting, pictures, files, templates</small></li>
+    <li><span class="n">5</span><a href="#search">Finding things</a><small>Search, filters, Timeline and categories</small></li>
+    <li><span class="n">6</span><a href="#pinned">Pinned</a><small>The entries you want to keep close</small></li>
+    <li><span class="n">7</span><a href="#photos">Photos</a><small>Every picture in your journal</small></li>
+    <li><span class="n">8</span><a href="#insights">Insights</a><small>Mood patterns, writing habits and looking back</small></li>
+    <li><span class="n">9</span><a href="#categories">Categories</a><small>Names and colours for your entries</small></li>
+    <li><span class="n">10</span><a href="#templates">Templates</a><small>Ready-made starting points, and your own</small></li>
+    <li><span class="n">11</span><a href="#settings">Settings</a><small>Every setting, explained</small></li>
+    <li><span class="n">12</span><a href="#privacy">Privacy and security</a><small>Password, recovery key, private entries, auto-lock</small></li>
+    <li><span class="n">13</span><a href="#data">Your data</a><small>Backups, restore, PDF export, location, Recently deleted, USB use</small></li>
+    <li><span class="n">14</span><a href="#ai">AI helpers</a><small>Optional drafting and summaries that run on your own PC</small></li>
+    <li><span class="n">15</span><a href="#keys">Keyboard shortcuts</a><small>Every shortcut in one table</small></li>
+    <li><span class="n">16</span><a href="#help">Troubleshooting and questions</a><small>If something doesn’t look right</small></li>
+  </ol>
+
+  <h2 style="margin-top:12mm">How to read this guide</h2>
+  <p>Names of buttons and menu items are shown in <span class="btn">this style</span>, keys look like <kbd>Ctrl</kbd> + <kbd>N</kbd>, and a path such as <span class="menu">Settings → Your data</span> means “open Settings, then go to the Your data section”.</p>
+  <div class="callout tip"><span class="label">Tip</span><p>You can reopen this guide at any time from <span class="menu">Settings → Help → User guide</span>.</p></div>
+  <div class="callout note"><span class="label">About the pictures</span><p>The screenshots in this guide use made-up example entries, not anyone’s real journal.</p></div>
+</section>
+
+<!-- ============================ 1 GETTING STARTED ============================ -->
+<section class="chapter newpage" id="start">
+  <h1><span class="num">Chapter 1</span>Getting started</h1>
+  <p class="lead">Tideline Journal is a private place to write each day. Everything you write is encrypted with your password, and nothing leaves your computer.</p>
+
+  <h2>Creating your journal</h2>
+  <p>The first time you start the program it asks you to choose a password. Type it twice and press <span class="btn">Create password</span>.</p>
+  <figure class="narrow"><img src="img/00-create-password.jpg" alt=""><figcaption>The first-run screen: choose a password.</figcaption></figure>
+  <ul>
+    <li>A password must be at least <strong>8 characters</strong>. A short sentence you will remember makes a good password.</li>
+    <li>Straight after creating a journal you are offered a <strong>recovery key</strong>. Make one (see <a href="#privacy">chapter 12</a>): it is the only way back in if you ever forget the password.</li>
+  </ul>
+  <div class="callout warn"><span class="label">Important</span><p>Your journal is encrypted for real. If you forget the password and have no recovery key, <strong>nobody can open it, including the people who made this program</strong>. Make a recovery key and keep it somewhere safe.</p></div>
+
+  <h2>Unlocking and locking</h2>
+  <p>Each time the program starts it shows an unlock screen. Type your password and press <kbd>Enter</kbd>. Below the password box are two links: <span class="btn">Forgot your password?</span> (use a recovery key) and <span class="btn">Open a different diary…</span> (use a journal stored in another folder, such as a backup).</p>
+  <p>To lock the journal at any time, press <kbd>Ctrl</kbd> + <kbd>L</kbd> or choose <span class="btn">Lock journal</span> at the bottom of the side menu. Locking forgets the decrypted text. If you were in the middle of writing an entry, it is kept in memory and is still there after you unlock.</p>
+  <p>The journal also locks by itself after a period without activity, and hides itself while the window is in the background (see <a href="#privacy">chapter 12</a>).</p>
+
+  <h2>Your window at a glance</h2>
+  <figure class="annot">
+    <img src="img/01-calendar.jpg" alt="">
+    <span class="pin" style="left:50%;top:2.6%">1</span>
+    <span class="pin" style="left:9.5%;top:45%">2</span>
+    <span class="pin" style="left:36%;top:9.5%">3</span>
+    <span class="pin" style="left:88%;top:14%">4</span>
+    <figcaption>The main window, with the four areas numbered.</figcaption>
+  </figure>
+  <ol>
+    <li><strong>Title bar.</strong> The search box (<kbd>Ctrl</kbd> + <kbd>F</kbd>) is in the middle and the window buttons are on the right. Drag the bar to move the window; double-click it to maximise or restore.</li>
+    <li><strong>Side menu.</strong> <span class="btn">New entry</span>, places to go (Today, Calendar, Timeline, Pinned, Photos, Insights), your categories with a count of entries, then <span class="btn">Lock journal</span> and <span class="btn">Settings</span>.</li>
+    <li><strong>The calendar.</strong> Arrows, the month title, <span class="btn">Today</span> and <span class="btn">Surprise me</span>, and the Year / Month / Week / Day switch.</li>
+    <li><strong>The day panel.</strong> A summary of the day you have selected, with its entries as cards.</li>
+  </ol>
+  <div class="callout tip"><span class="label">Tip</span><p>You can make everything bigger or smaller with <kbd>Ctrl</kbd> + <kbd>+</kbd> and <kbd>Ctrl</kbd> + <kbd>−</kbd> (and <kbd>Ctrl</kbd> + <kbd>0</kbd> to reset). <kbd>F11</kbd> switches full screen on and off.</p></div>
+</section>
+
+<!-- ============================ 2 CALENDAR ============================ -->
+<section class="chapter" id="calendar">
+  <h1><span class="num">Chapter 2</span>The calendar</h1>
+  <p class="lead">The calendar shows what you have written and when. Click any day to select it and see its entries on the right.</p>
+
+  <h2>Month view</h2>
+  <p>This is the view you start in. Each day is a tile:</p>
+  <ul>
+    <li>The <strong>date number</strong> is at the top left. <strong>Today</strong> sits in an amber circle, and the <strong>selected day</strong> has a teal outline. Days belonging to the previous or next month are dimmed.</li>
+    <li>A small <strong>coloured dot</strong> at the top right shows the day’s average mood, from red (Awful) through amber to teal (Great).</li>
+    <li>Each entry appears as a <strong>chip</strong>: a dot in its category colour, the time and the title. A star on a chip means it is pinned. If a day has more entries than fit, the tile says “+2 more”: click the day to see them all on the right.</li>
+  </ul>
+  <figure><img src="img/01-calendar.jpg" alt=""><figcaption>Month view. Today is circled in amber; the 8th is selected.</figcaption></figure>
+
+  <h2>Year, Week and Day views</h2>
+  <p>Use the switch under the month title (or <kbd>Ctrl</kbd> + <kbd>1</kbd> to <kbd>Ctrl</kbd> + <kbd>4</kbd>).</p>
+  <h3>Year</h3>
+  <p>A heat-map with one small square per day: the more you wrote, the brighter the square. Hover for the date and word count, click to select a day, double-click to open it in Day view. Underneath are your totals for the year (entries, days written, words, current and longest writing streak, average mood), entries per category and a chart of your mood through the year.</p>
+  <figure><img src="img/03-year.jpg" alt=""><figcaption>Year view: the heat-map and your year in numbers.</figcaption></figure>
+  <h3>Week</h3>
+  <p>Seven tall columns, one per day, with more room for each entry’s chip.</p>
+  <figure><img src="img/04-week.jpg" alt=""><figcaption>Week view.</figcaption></figure>
+  <h3>Day</h3>
+  <p>The selected day hour by hour. Entries sit in the hour they were written.</p>
+  <figure><img src="img/05-day.jpg" alt=""><figcaption>Day view: a timeline from the morning onwards.</figcaption></figure>
+
+  <h2>Moving around</h2>
+  <table>
+    <tr><th>To do this</th><th>Do this</th></tr>
+    <tr><td>Step back or forward</td><td>The <span class="btn">‹</span> and <span class="btn">›</span> buttons, or the <kbd>←</kbd> and <kbd>→</kbd> keys. In Month view this moves a month; in Week, a week; in Day, a day; in Year, a year.</td></tr>
+    <tr><td>Jump to today</td><td><span class="btn">Today</span> (top right of the calendar), the <span class="btn">Today</span> item in the side menu, or <kbd>Ctrl</kbd> + <kbd>T</kbd>.</td></tr>
+    <tr><td>Look back at random</td><td><span class="btn">Surprise me</span> or <kbd>Ctrl</kbd> + <kbd>R</kbd> jumps to a random entry from the past. Private entries are never chosen.</td></tr>
+    <tr><td>Change view</td><td>The Year / Month / Week / Day switch, or <kbd>Ctrl</kbd> + <kbd>1</kbd> (Day), <kbd>2</kbd> (Week), <kbd>3</kbd> (Month), <kbd>4</kbd> (Year).</td></tr>
+  </table>
+
+  <h2>Dragging entries</h2>
+  <p>To move an entry to another day, press on its chip and drag it onto the day you want; a teal outline shows where it will land. The time of day is kept. In Day view you can drag an entry to another <em>hour</em> to change its time. Press <kbd>Esc</kbd> to cancel a drag.</p>
+
+  <h2>Starting an entry from the calendar</h2>
+  <p>Double-click a day to write a new entry for it, or double-click an entry’s chip to edit that entry. In Day view, double-clicking an hour starts an entry at that time.</p>
+</section>
+
+<!-- ============================ 3 DAY PANEL ============================ -->
+<section class="chapter" id="daypanel">
+  <h1><span class="num">Chapter 3</span>The day panel</h1>
+  <p class="lead">The panel on the right is your reading view for the selected day.</p>
+  <figure><img src="img/02-day-expanded.jpg" alt=""><figcaption>The day panel. The second card has been opened with “Show more”.</figcaption></figure>
+
+  <h2>The top of the panel</h2>
+  <ul>
+    <li>The <strong>weekday and date</strong>, then a summary such as “2 entries · 75 words · Mood: Okay”.</li>
+    <li><span class="btn">Write about this day</span> starts a new entry for the selected day.</li>
+    <li><span class="btn">Summarise</span> appears when the optional AI helpers are switched on and the day has entries (see <a href="#ai">chapter 14</a>).</li>
+    <li>If you set a <strong>daily word goal</strong> (<span class="menu">Settings → Writing</span>), a thin progress bar shows how close the day is.</li>
+  </ul>
+
+  <h2>Entry cards</h2>
+  <p>Every entry is a card showing its <strong>category</strong>, the <strong>time</strong>, a <strong>star</strong> (click it to pin or unpin), the <strong>title</strong>, a few lines of text and the word count.</p>
+  <ul>
+    <li><span class="btn">Open</span> opens the entry in the writing view so you can read it in full or change it.</li>
+    <li>The <span class="btn">⋯</span> button has <span class="btn">Delete</span> and, for a private entry that is showing, <span class="btn">Hide again</span>.</li>
+    <li><strong>Show more</strong> appears when an entry is longer than the preview, has several paragraphs or contains a picture (it then reads “Show more, with picture”). Click it to read the whole entry inside the card, pictures included; click <strong>Show less</strong> to fold it up again.</li>
+    <li>Attached files are listed on the card with <span class="btn">Save as…</span> and <span class="btn">Open</span>.</li>
+  </ul>
+  <h3>Deleting and undoing</h3>
+  <p>Deleting an entry moves it to <strong>Recently deleted</strong> (see <a href="#data">chapter 13</a>). A message appears at the top of the panel with an <span class="btn">Undo</span> button for the one you just removed.</p>
+  <h3>Private entries</h3>
+  <p>A private entry is shown as grey placeholder lines and “Private entry – click to show”. Click it to read it. It hides itself again when you lock the journal or leave the window.</p>
+  <h3>Days with no entries</h3>
+  <p>An empty day shows a dashed box that says “A blank page.”</p>
+
+  <h2>On this day</h2>
+  <p>Underneath the cards, “On this day” lists what you wrote on the same date in earlier years. Click one to jump to it.</p>
+</section>
+
+<!-- ============================ 4 WRITING ============================ -->
+<section class="chapter newpage" id="writing">
+  <h1><span class="num">Chapter 4</span>Writing an entry</h1>
+  <p class="lead">Writing has a whole page to itself, so there is nothing in the way.</p>
+
+  <h2>Opening the writing page</h2>
+  <p>There are several ways in: <span class="btn">New entry</span> in the side menu, <span class="btn">Write about this day</span>, <kbd>Ctrl</kbd> + <kbd>N</kbd>, double-clicking a day, or <span class="btn">Open</span> on an existing entry. A new entry belongs to the selected day and takes the current time.</p>
+  <figure><img src="img/06-editor-empty.jpg" alt=""><figcaption>A new entry: details, mood, a prompt, and the writing card.</figcaption></figure>
+  <p>At the top, <strong>← Calendar</strong> takes you back, <span class="btn">Discard</span> throws the entry away, and <span class="btn">Save entry</span> saves it. “Unsaved draft” tells you there are changes that are not saved yet.</p>
+
+  <h2>Date, time and category</h2>
+  <div class="cols">
+    <div>
+      <p>The three chips at the top left set when the entry belongs and what it is about.</p>
+      <ul>
+        <li><strong>Date</strong>: click the chip to open a small calendar and pick any day.</li>
+        <li><strong>Time</strong>: click the chip, then use the hour and minute boxes or press <span class="btn">Now</span>.</li>
+        <li><strong>Category</strong>: click the chip and choose from your categories.</li>
+      </ul>
+    </div>
+    <div><figure style="margin-top:0"><img src="img/28-date-picker.jpg" alt=""><figcaption>The date picker.</figcaption></figure></div>
+  </div>
+  <figure class="narrow"><img src="img/29-category-menu.jpg" alt=""><figcaption>Choosing a category.</figcaption></figure>
+  <p>On the right, <span class="btn">Pin</span> stars the entry so it appears under Pinned, and <span class="btn">Private</span> hides it until you click it (see <a href="#privacy">chapter 12</a>). Both are switches: click again to turn them off.</p>
+
+  <h2>Mood</h2>
+  <p>Under “How are you feeling?” choose one of five moods: <strong>Awful, Low, Okay, Good</strong> or <strong>Great</strong>. The chosen mood glows in its colour. Click it again to clear it. Moods feed the dots on the calendar and the charts in Insights, but they are entirely optional.</p>
+
+  <h2>Writing prompts</h2>
+  <p>The green card offers a question to get you started, such as “What do you want more of in your life?”.</p>
+  <ul>
+    <li><span class="btn">Use this prompt</span> puts the question into your entry as a heading <strong>at the cursor</strong>, on a line of its own, and leaves you ready to write the answer. Use it again, anywhere in the entry, for as many prompts as you like.</li>
+    <li><span class="btn">Another</span> shows a different question without adding anything.</li>
+    <li>The <strong>×</strong> hides prompts. You can switch them back on under <span class="menu">Settings → Writing → Writing prompts</span>.</li>
+  </ul>
+  <p>The card stays visible while you write, so you can pick a new prompt halfway through an entry.</p>
+
+  <h2>The writing card</h2>
+  <figure><img src="img/07-editor.jpg" alt=""><figcaption>An entry in progress: a title, formatted text, a list and a quote.</figcaption></figure>
+  <p>Type an optional <strong>title</strong> at the top (press <kbd>Enter</kbd> to move into the text), then write below it. What you see is what you get: bold looks bold, headings are large, lists have bullets. Underneath, a line shows the word count and an estimated reading time.</p>
+
+  <h3>The toolbar</h3>
+  <table>
+    <tr><th>Button</th><th>What it does</th></tr>
+    <tr><td><strong>B</strong> &nbsp;<em>I</em> &nbsp;<s>S</s></td><td>Bold, italic and strikethrough for the selected text. Click again to remove it. <kbd>Ctrl</kbd> + <kbd>B</kbd> and <kbd>Ctrl</kbd> + <kbd>I</kbd> work too. With nothing selected, the format starts at the cursor and applies to what you type next.</td></tr>
+    <tr><td>H1 H2 H3</td><td>Turn the line into a large, medium or small heading. Click again to turn it back into a normal paragraph.</td></tr>
+    <tr><td>• list, 1. list</td><td>Make the selected lines a bulleted or numbered list.</td></tr>
+    <tr><td>” quote</td><td>Make the selected lines a quotation.</td></tr>
+    <tr><td>Picture</td><td>Add a picture (see below).</td></tr>
+    <tr><td>Paperclip</td><td>Attach a file (see below).</td></tr>
+    <tr><td><span class="btn">Template</span></td><td>Fill the page from a template (see below).</td></tr>
+    <tr><td><span class="btn">Ask AI</span></td><td>Optional AI helpers (see <a href="#ai">chapter 14</a>).</td></tr>
+  </table>
+  <p>You can also type formatting as you go: <code>**bold**</code>, <code>*italic*</code>, <code>## Heading</code>, <code>- item</code> and <code>&gt; quote</code> all work, and are shown formatted straight away.</p>
+  <div class="callout note"><span class="label">Formatting marks</span><p>The little symbols behind formatting (such as the stars around bold text) are hidden so the page looks clean. The arrow keys, <kbd>Backspace</kbd> and <kbd>Delete</kbd> step over them as if they were not there. If you want to see them, tick <strong>Show formatting marks</strong> at the bottom of the card.</p></div>
+
+  <h2>Pictures</h2>
+  <p>Press the picture button and choose an image, or simply <strong>drag an image file onto the window</strong>. It appears in the text where your cursor was. A <span class="btn">Remove picture</span> button sits under each one. Large images are shrunk to a sensible size (1,600 pixels on the longest side) and stored inside your encrypted journal. Because pictures are part of the journal file, many large pictures make it bigger and saving slower.</p>
+
+  <h2>Attachments</h2>
+  <p>Press the paperclip to attach any file, up to <strong>25 MB</strong> each, or drag a file onto the window. Attached files are listed under the card with a <span class="btn">Remove</span> button, and are stored inside the encrypted journal. On a day’s card you can <span class="btn">Save as…</span> a copy or <span class="btn">Open</span> it.</p>
+  <div class="callout note"><span class="label">Good to know</span><p><span class="btn">Open</span> makes a temporary plain copy so another program can show it. The copy is kept in a folder beside your journal (<code>opened-attachments-temporary</code>) and removed when you lock the journal or next start the program.</p></div>
+
+  <h2>Templates</h2>
+  <p>Press <span class="btn">Template</span> and choose one to fill the page with headings and questions to answer. <span class="btn">Manage templates…</span> opens the templates window (see <a href="#templates">chapter 10</a>).</p>
+  <figure class="narrow"><img src="img/30-template-menu.jpg" alt=""><figcaption>The Template menu.</figcaption></figure>
+
+  <h2>Ask AI</h2>
+  <p><span class="btn">Ask AI</span> opens a menu. If the helpers are not set up, it offers <span class="btn">Set up AI helpers…</span>. Once they are on, it offers to turn your rough notes into an entry and to suggest a question to think about (see <a href="#ai">chapter 14</a>).</p>
+  <figure class="narrow"><img src="img/31-ask-ai-menu.jpg" alt=""><figcaption>The Ask AI menu before the helpers are set up.</figcaption></figure>
+
+  <h2>Saving, discarding and word goals</h2>
+  <ul>
+    <li><strong>Save</strong> with <span class="btn">Save entry</span>, <kbd>Ctrl</kbd> + <kbd>S</kbd> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. The journal is encrypted and written to disk each time.</li>
+    <li><strong>Discard</strong> or <strong>← Calendar</strong> leaves without saving. If you have written something, the first click turns the button into “Click again to discard”, so you can’t lose work by accident; clicking anywhere else cancels it.</li>
+    <li>With a <strong>daily word goal</strong> set, “Today so far” under the card shows progress for the whole day, counting this entry and the day’s other entries.</li>
+    <li><kbd>Ctrl</kbd> + <kbd>D</kbd> pins or unpins the entry while you write.</li>
+  </ul>
+
+  <h2>Changing or deleting an entry later</h2>
+  <p>Press <span class="btn">Open</span> on its card, or double-click its chip. You can change anything, including its date, time, category, mood and pictures. To delete it, use <span class="btn">⋯</span> → <span class="btn">Delete</span> on its card.</p>
+</section>
+
+<!-- ============================ 5 SEARCH ============================ -->
+<section class="chapter" id="search">
+  <h1><span class="num">Chapter 5</span>Finding things</h1>
+  <p class="lead">Search the whole journal in a moment, or browse everything newest first.</p>
+
+  <h2>Search</h2>
+  <p>Click the search box at the top (or press <kbd>Ctrl</kbd> + <kbd>F</kbd>) and start typing. The day panel is replaced by the results as you type, and matching words are highlighted. Click a result to jump to its day.</p>
+  <figure><img src="img/08-search.jpg" alt=""><figcaption>Searching for “tide”, with the filters showing.</figcaption></figure>
+  <table>
+    <tr><th>You type</th><th>It finds</th></tr>
+    <tr><td>river walk</td><td>Entries containing <em>both</em> words, in any order and any capitals.</td></tr>
+    <tr><td>"river walk"</td><td>Entries with that exact phrase.</td></tr>
+    <tr><td>river -work</td><td>Entries with “river” but not “work”.</td></tr>
+  </table>
+  <p>Search also looks at category names, dates (such as <code>2026-10</code>) and attachment file names. <strong>Private entries are never found by their text</strong>; they can only turn up by category or date.</p>
+
+  <h3>Filters</h3>
+  <p>Press <span class="btn">Filters</span> in the search box, or just start with the filters and no words at all. You can narrow results by:</p>
+  <ul>
+    <li><strong>Category</strong> and <strong>Mood</strong>,</li>
+    <li><strong>Time</strong>: any time, the last 7 or 30 days, the last year, or “Between dates…”,</li>
+    <li><strong>Starred only</strong> and <strong>Has attachments</strong>,</li>
+    <li>and sort by <strong>Newest first</strong>, <strong>Oldest first</strong> or <strong>Best match</strong>.</li>
+  </ul>
+  <p><span class="btn">Clear</span> (top right of the results) empties the search and the filters and returns to the day view.</p>
+
+  <h2>Timeline</h2>
+  <p><strong>Timeline</strong> in the side menu lists every entry, newest first, in the same results panel. It is the quickest way to scroll back through everything.</p>
+  <figure><img src="img/09-timeline.jpg" alt=""><figcaption>The Timeline.</figcaption></figure>
+
+  <h2>Categories in the side menu</h2>
+  <p>Each category in the side menu shows how many entries it holds. Click one to see only that category’s entries. <span class="btn">Edit</span> next to “Categories” opens the category editor (see <a href="#categories">chapter 9</a>).</p>
+</section>
+
+<!-- ============================ 6 PINNED ============================ -->
+<section class="chapter" id="pinned">
+  <h1><span class="num">Chapter 6</span>Pinned</h1>
+  <p class="lead">Star the entries you want to be able to find again in a second.</p>
+  <p>Pin an entry by clicking the star on its card, using the <span class="btn">Pin</span> switch while writing, or pressing <kbd>Ctrl</kbd> + <kbd>D</kbd> in the writing page. Pinned entries carry a star on the calendar. <strong>Pinned</strong> in the side menu opens them all on one page.</p>
+  <figure><img src="img/10-pinned.jpg" alt=""><figcaption>The Pinned page.</figcaption></figure>
+  <ul>
+    <li>Each card shows a date tile, the day and time, the category, the mood, the title and a short preview with the word count.</li>
+    <li><strong>Show more</strong> opens the whole entry in the card, pictures included.</li>
+    <li><span class="btn">Open day</span> takes you to that day on the calendar.</li>
+    <li>Click a card’s <strong>star</strong> to unpin it.</li>
+    <li>The chips at the top (<strong>All</strong>, then one per category) filter the cards, and <strong>Sort by</strong> orders them by newest, oldest or longest.</li>
+    <li>The dashed card at the end reminds you how to pin more.</li>
+  </ul>
+</section>
+
+<!-- ============================ 7 PHOTOS ============================ -->
+<section class="chapter" id="photos">
+  <h1><span class="num">Chapter 7</span>Photos</h1>
+  <p class="lead">Every picture you have added, in one place.</p>
+  <p><strong>Photos</strong> in the side menu shows all the pictures in your journal as thumbnails, newest first, grouped by month.</p>
+  <figure><img src="img/11-photos.jpg" alt=""><figcaption>The Photos page, with the thumbnail-size slider.</figcaption></figure>
+  <ul>
+    <li>Drag the <strong>Thumbnail size</strong> slider to make the pictures smaller or bigger.</li>
+    <li>Click a picture to see it large. The arrow keys move between pictures, and from the viewer you can jump to the entry the picture belongs to.</li>
+    <li>Pictures from private entries are marked, and the entry they belong to stays hidden until you reveal it.</li>
+  </ul>
+</section>
+
+<!-- ============================ 8 INSIGHTS ============================ -->
+<section class="chapter" id="insights">
+  <h1><span class="num">Chapter 8</span>Insights</h1>
+  <p class="lead">Patterns in how you feel and how you write, worked out from your own entries and shown only to you.</p>
+  <p>Choose <strong>Insights</strong> in the side menu. At the top right, switch the range between <strong>30 days</strong>, <strong>90 days</strong>, <strong>This year</strong> and <strong>All time</strong>. There are three tabs.</p>
+
+  <h2>Mood patterns</h2>
+  <figure><img src="img/12-insights.jpg" alt=""><figcaption>Mood patterns for the year.</figcaption></figure>
+  <ul>
+    <li><strong>Average mood</strong> and <strong>Entries with a mood</strong> sum up the range.</li>
+    <li>The green card shows how many ratings you need before the charts are reliable. Once you have ten, it lists plain-language observations instead, such as which time of day you tend to feel best.</li>
+    <li>The bar charts show your average mood <strong>by day of the week, time of day, length of entry</strong> and <strong>category</strong>. The scale along the bottom runs from 1 (awful) to 5 (great). A <strong>dimmer bar</strong> means fewer than three entries, so it is only an early signal.</li>
+    <li><strong>View as table</strong> (below the charts) shows the same numbers as a table.</li>
+  </ul>
+  <div class="callout note"><span class="label">Remember</span><p>These are patterns in your own ratings, not causes. A quiet bar may simply mean you rarely wrote at that time.</p></div>
+
+  <h2>Writing habits</h2>
+  <figure><img src="img/13-insights-writing.jpg" alt=""><figcaption>Writing habits.</figcaption></figure>
+  <p>Totals for entries, words and words per entry; the words you use most (bigger means more often; everyday filler words and private entries are left out); charts of when you write by hour of the day and day of the week; and your longest entries (click one to jump to it).</p>
+
+  <h2>Look back</h2>
+  <figure><img src="img/14-insights-lookback.jpg" alt=""><figcaption>A month in review.</figcaption></figure>
+  <p>A recap of a week, month or year: choose <strong>This week, Last week, This month, Last month, This year</strong> or <strong>Last year</strong> at the top right. You get your totals, how your mood compared with the period before, your happiest and hardest days, where you wrote, words that kept coming up, pictures from the period, and entries to remember. <span class="btn">Save this review as a PDF…</span> at the bottom makes a printable copy.</p>
+</section>
+
+<!-- ============================ 9 CATEGORIES ============================ -->
+<section class="chapter" id="categories">
+  <h1><span class="num">Chapter 9</span>Categories</h1>
+  <p class="lead">Categories are the coloured labels that say what an entry is about.</p>
+  <p>Open the editor with <span class="btn">Edit</span> next to “Categories” in the side menu.</p>
+  <figure class="narrow"><img src="img/18-categories.jpg" alt=""><figcaption>The Categories window.</figcaption></figure>
+  <ul>
+    <li><strong>Rename</strong>: click a name, type the new one and press <kbd>Enter</kbd>. Every entry using that category is updated.</li>
+    <li><strong>Change the colour</strong>: click the coloured square next to a name and pick a colour.</li>
+    <li><strong>Add</strong>: type a name under “Add a category”, choose a colour and press <span class="btn">Add</span>.</li>
+    <li><strong>Delete</strong>: press <span class="btn">Delete</span> next to a name. The category goes, but its entries are kept and shown in grey.</li>
+  </ul>
+</section>
+
+<!-- ============================ 10 TEMPLATES ============================ -->
+<section class="chapter" id="templates">
+  <h1><span class="num">Chapter 10</span>Templates</h1>
+  <p class="lead">A template fills a new entry with headings and questions, so you never start from a blank page unless you want to.</p>
+  <p>Open the templates window from <span class="menu">Settings → Writing → Templates → Manage</span>, or from the <span class="btn">Template</span> menu in the writing page.</p>
+  <figure class="narrow"><img src="img/19-templates.jpg" alt=""><figcaption>The Templates window.</figcaption></figure>
+  <ul>
+    <li><strong>Eight built-in templates</strong>: Gratitude, Daily review, Evening wind-down, Weekly reflection, Mood check-in, Goals check-in, Dream log and Travel log.</li>
+    <li>Built-in templates cannot be changed. Press <span class="btn">Make my own copy</span> to get an editable version.</li>
+    <li><span class="btn">New template</span> starts one from scratch. Give it a name and write its text. You can use <code>{date}</code>, <code>{weekday}</code> and <code>{time}</code>, which are replaced automatically when the template is used.</li>
+    <li><strong>Used for every new entry</strong> lets you choose a template that is filled in each time you start a new entry (or “None”).</li>
+  </ul>
+</section>
+
+<!-- ============================ 11 SETTINGS ============================ -->
+<section class="chapter newpage" id="settings">
+  <h1><span class="num">Chapter 11</span>Settings</h1>
+  <p class="lead">Choose <strong>Settings</strong> at the bottom of the side menu. Changes are saved as you make them.</p>
+  <figure><img src="img/15-settings.jpg" alt=""><figcaption>The Settings page. The left column jumps to each section.</figcaption></figure>
+  <p><span class="btn">‹ Back to journal</span> returns to the calendar. Each row has a title, a line of explanation and its control on the right.</p>
+
+  <h2>Security</h2>
+  <table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td>Password</td><td><span class="btn">Change password</span> opens a window to choose a new one (at least 8 characters).</td></tr>
+    <tr><td>Recovery key</td><td>Creates, shows or replaces the key that can open your journal if you forget your password (see <a href="#privacy">chapter 12</a>).</td></tr>
+    <tr><td>Auto-lock</td><td>Locks the journal after no activity for: Off, 1, 5, 10 (the default) or 30 minutes.</td></tr>
+    <tr><td>Hide when in the background</td><td>Blanks the window while you are using another program or it is minimised.</td></tr>
+  </table>
+  <h2>Writing</h2>
+  <table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td>Writing prompts</td><td>Shows or hides the prompt card in the writing page.</td></tr>
+    <tr><td>Daily word goal</td><td>Off, 100, 250, 500, 750 or 1,000 words. Progress shows on the day panel and in the writing page.</td></tr>
+    <tr><td>Templates</td><td><span class="btn">Manage</span> opens the templates window.</td></tr>
+    <tr><td>AI helpers</td><td><span class="btn">Set up</span> (or <span class="btn">Manage</span>) opens the optional helpers (see <a href="#ai">chapter 14</a>).</td></tr>
+  </table>
+
+  <h2>Your data</h2>
+  <figure><img src="img/16-settings-data.jpg" alt=""><figcaption>The Your data and Display sections.</figcaption></figure>
+  <table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td>Automatic backups</td><td>Switches the daily encrypted copy on or off, and shows the date of the last one.</td></tr>
+    <tr><td>Copies to keep</td><td>How many automatic backups to keep: 5, 10, 20, 30 or 60. Older ones are removed.</td></tr>
+    <tr><td>Back up now</td><td><span class="btn">Back up…</span> saves an encrypted copy wherever you choose, such as a USB drive.</td></tr>
+    <tr><td>Backups and restore</td><td>Opens the list of automatic backups, where you can restore or delete one.</td></tr>
+    <tr><td>Export to PDF</td><td>Makes a readable, printable copy of some or all entries (not encrypted).</td></tr>
+    <tr><td>Data location</td><td>Shows where the journal is stored, and lets you move it or open one from another folder.</td></tr>
+    <tr><td>Recently deleted</td><td>The 30-day bin for deleted entries.</td></tr>
+  </table>
+
+  <h2>Display</h2>
+  <figure><img src="img/17-settings-display.jpg" alt=""><figcaption>Display and Help.</figcaption></figure>
+  <table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td>Accent colour</td><td>The one colour you can change. Pick one of eight (Tide, Sky, Violet, Rose, Lamp, Ember, Moss, Slate) or press the colour square to choose any colour you like. It is used for buttons, the selected day and highlights, and is automatically adjusted so text always stays easy to read.</td></tr>
+    <tr><td>Text size</td><td>80% to 160%. <kbd>Ctrl</kbd> + <kbd>+</kbd>, <kbd>Ctrl</kbd> + <kbd>−</kbd> and <kbd>Ctrl</kbd> + <kbd>0</kbd> change it from anywhere.</td></tr>
+    <tr><td>Window on startup</td><td>Normal window, Maximised or Full screen. It takes effect the next time you start the program.</td></tr>
+    <tr><td>Full screen</td><td><span class="btn">Toggle (F11)</span> switches full screen on or off right now.</td></tr>
+  </table>
+  <h2>Help</h2>
+  <table>
+    <tr><th>Setting</th><th>What it does</th></tr>
+    <tr><td>User guide</td><td>Saves or opens this guide as a PDF.</td></tr>
+    <tr><td>Keyboard shortcuts</td><td><span class="btn">View</span> lists every shortcut.</td></tr>
+  </table>
+</section>
+
+<!-- ============================ 12 PRIVACY ============================ -->
+<section class="chapter newpage" id="privacy">
+  <h1><span class="num">Chapter 12</span>Privacy and security</h1>
+  <p class="lead">Your journal is encrypted on disk and never sent anywhere. These are the tools that keep it that way.</p>
+
+  <h2>Your password</h2>
+  <p>Your entries, pictures and files are sealed with strong encryption (XChaCha20-Poly1305) under a key that is itself protected by your password (Argon2id). Without the password, the file is unreadable noise. To change it, use <span class="menu">Settings → Security → Password → Change password</span>, type the new password twice and press <span class="btn">Change password</span>.</p>
+  <figure class="narrow"><img src="img/27-password.jpg" alt=""><figcaption>Changing the password.</figcaption></figure>
+
+  <h2>The recovery key</h2>
+  <p>A recovery key is a long code, shown once, that can open your journal if you forget your password. Open <span class="menu">Settings → Security → Recovery key</span>.</p>
+  <figure class="narrow"><img src="img/21-recovery.jpg" alt=""><figcaption>No recovery key yet.</figcaption></figure>
+  <ol class="steps">
+    <li>Press <span class="btn">Create a recovery key</span>. The key appears <em>once</em> on the screen.</li>
+    <li>Press <span class="btn">Copy</span> or <span class="btn">Save as text file…</span> and keep it somewhere safe and <strong>away from this PC</strong>: written down, or in a password manager.</li>
+    <li>Tick “I have stored my recovery key somewhere safe”, then press <span class="btn">Done</span>.</li>
+  </ol>
+  <p>Later the same window lets you make a <strong>new</strong> key (the old one stops working) or <strong>remove</strong> the key. Each of these needs a second click to confirm.</p>
+  <h3>If you forget your password</h3>
+  <ol class="steps">
+    <li>On the unlock screen choose <span class="btn">Forgot your password?</span></li>
+    <li>Type your recovery key and choose a new password.</li>
+    <li>The journal opens, with the new password from now on.</li>
+  </ol>
+  <div class="callout warn"><span class="label">Important</span><p>Anyone who has both your recovery key and your journal file can open your journal, so keep the key private. If you have no recovery key and forget your password, the journal cannot be recovered by anyone.</p></div>
+
+  <h2>Private entries</h2>
+  <p>Switch on <span class="btn">Private</span> while writing and the entry is hidden until you click it. While hidden, its text, mood, pictures and search matches are not shown. It hides again when you lock the journal or leave the window. Private entries are also left out of searches by text, <strong>Surprise me</strong>, Insights, PDF exports (unless you ask for them) and the AI helpers.</p>
+
+  <h2>Auto-lock and hiding in the background</h2>
+  <p><strong>Auto-lock</strong> locks the journal after a period of no activity (10 minutes unless you change it). <strong>Hide when in the background</strong> blanks the whole window as soon as you switch to another program or minimise it, so no one can read it over your shoulder when you step away. Click the window to show it again.</p>
+
+  <h2>What is and isn’t protected</h2>
+  <ul>
+    <li>The journal file and its automatic backups are <strong>encrypted</strong>.</li>
+    <li><strong>PDF exports are not encrypted.</strong> They are a plain copy of what you chose, so keep them somewhere safe.</li>
+    <li>While the journal is unlocked, the decrypted text is in the computer’s memory. Lock it when you step away.</li>
+    <li>Nothing is sent over the internet. The optional AI helpers talk only to a program running on your own PC.</li>
+  </ul>
+</section>
+
+<!-- ============================ 13 DATA ============================ -->
+<section class="chapter" id="data">
+  <h1><span class="num">Chapter 13</span>Your data</h1>
+  <p class="lead">Where your journal lives, how to back it up and how to get things back.</p>
+
+  <h2>Where your journal is stored</h2>
+  <p>By default your journal is in a folder called <code>data</code> beside the program. Inside it are <code>entries.json</code> (your encrypted journal), <code>backups</code> (automatic copies) and <code>config.json</code> (a few settings that are needed before you unlock). The folder is easy to find and copy.</p>
+  <p>Open <span class="menu">Settings → Your data → Data location → Change…</span> to see exactly where it is.</p>
+  <figure class="narrow"><img src="img/24-location.jpg" alt=""><figcaption>The Data location window.</figcaption></figure>
+  <ul>
+    <li><span class="btn">Show in Explorer</span> opens the folder.</li>
+    <li><span class="btn">Move diary to another folder…</span> copies your journal to a folder you choose and uses it from there.</li>
+    <li><span class="btn">Use a diary from another folder…</span> opens a journal that already exists elsewhere, such as a backup. You will be asked for its password.</li>
+  </ul>
+
+  <h2>Automatic backups</h2>
+  <p>The first time you open the journal each day, and only if it has changed, a dated copy of the encrypted file is saved in the <code>backups</code> folder. They are encrypted exactly like your journal, so they are safe to keep and to copy elsewhere. Choose how many to keep under <span class="menu">Settings → Your data</span> (the default is 10).</p>
+  <p><span class="menu">Settings → Your data → Backups and restore → Open…</span> shows the list.</p>
+  <figure><img src="img/23-backups.jpg" alt=""><figcaption>The Backups window.</figcaption></figure>
+  <ul>
+    <li><span class="btn">Back up now</span> makes a copy straight away; <span class="btn">Open backups folder</span> shows the files.</li>
+    <li><span class="btn">Delete</span> removes one backup.</li>
+    <li><span class="btn">Restore…</span> puts a backup back in place. Click it a second time to confirm. Your current journal is first saved as a “before restore” safety copy, then the journal locks and you unlock it with the password <strong>that backup had when it was made</strong> (which may be an older password).</li>
+  </ul>
+  <div class="callout tip"><span class="label">Tip</span><p>Automatic backups live next to the journal, so they won’t help if the whole drive is lost. Use <span class="btn">Back up…</span> now and then to save a copy to a different drive.</p></div>
+
+  <h2>Export to PDF</h2>
+  <p><span class="menu">Settings → Your data → Export to PDF → Export…</span> or <kbd>Ctrl</kbd> + <kbd>E</kbd> makes a printable PDF.</p>
+  <figure class="narrow"><img src="img/20-export.jpg" alt=""><figcaption>The Export window.</figcaption></figure>
+  <ul>
+    <li>Choose what to include: <strong>this day, this week, this month, this year</strong> or <strong>everything</strong> (each shows how many entries it holds).</li>
+    <li>Tick or untick <strong>Include pictures</strong>.</li>
+    <li>Private entries are left out unless you tick <strong>Include private entries</strong>.</li>
+    <li>Press <span class="btn">Create PDF…</span> and choose where to save it.</li>
+  </ul>
+  <div class="callout warn"><span class="label">Careful</span><p>A PDF export is <strong>not</strong> encrypted or password protected. Keep it somewhere safe, and delete it when you no longer need it.</p></div>
+
+  <h2>Recently deleted</h2>
+  <p>Deleting an entry moves it here for <strong>30 days</strong>, then it is removed for good. Open it from <span class="menu">Settings → Your data → Recently deleted → Open…</span>.</p>
+  <figure class="narrow"><img src="img/22-trash.jpg" alt=""><figcaption>Recently deleted.</figcaption></figure>
+  <ul>
+    <li><span class="btn">Restore</span> puts an entry back on its day (with its pictures).</li>
+    <li><span class="btn">Delete for good</span> removes one permanently.</li>
+    <li><span class="btn">Empty the bin</span> removes everything. Click it a second time to confirm.</li>
+  </ul>
+
+  <h2>Taking your journal with you (portable use)</h2>
+  <p>The program is a single file, <code>tideline-journal.exe</code>, and needs no installer. Copy it, together with the <code>data</code> folder, onto a USB drive and run it from there on any Windows PC: your journal stays on the drive.</p>
+  <ul>
+    <li>Use “Safely remove” before unplugging the drive.</li>
+    <li>Files you open from entries are copied into the <code>data</code> folder (not onto the PC you are visiting) and removed when you lock.</li>
+    <li>The program is not code-signed, so Windows may show “Windows protected your PC”. Choose <strong>More info → Run anyway</strong>. A PC with Smart App Control switched on may refuse unsigned programs entirely.</li>
+  </ul>
+</section>
+
+<!-- ============================ 14 AI ============================ -->
+<section class="chapter" id="ai">
+  <h1><span class="num">Chapter 14</span>AI helpers</h1>
+  <p class="lead">Three optional helpers that run entirely on your own computer. They are off until you set them up.</p>
+
+  <h2>What they do</h2>
+  <ul>
+    <li><strong>Turn my notes into an entry</strong> (in the writing page’s <span class="btn">Ask AI</span> menu): jot rough notes, then have them written up in your voice. You choose <span class="btn">Add below my notes</span> or <span class="btn">Replace my notes</span> (or <span class="btn">Write it again</span>).</li>
+    <li><strong>Summarise</strong> (on a day’s panel): writes a short summary of that day’s entries and can save it with <span class="btn">Save as an entry</span>, marked “AI summary”.</li>
+    <li><strong>Suggest a question to reflect on</strong> (<span class="btn">Ask AI</span> menu): proposes a thoughtful question based on your recent entries, which you can use with <span class="btn">Use as a heading</span> (or ask for <span class="btn">Another question</span>).</li>
+  </ul>
+
+  <h2>Setting them up</h2>
+  <p>Open <span class="menu">Settings → Writing → AI helpers → Set up</span>. The window walks you through three steps.</p>
+  <figure><img src="img/26-ai-setup.jpg" alt=""><figcaption>The AI helpers window.</figcaption></figure>
+  <ol class="steps">
+    <li><strong>Ollama.</strong> The helpers use <em>Ollama</em>, a free program that runs AI models on your PC. If it is not installed, the window offers to install it for you (you tick a box confirming that you understand it downloads a large file), or to open its download page. If it is installed but not running, <span class="btn">Start Ollama</span> launches it, and <span class="btn">Check again</span> re-checks after you install.</li>
+    <li><strong>A model.</strong> Pick one that is installed, or download one (for example Llama 3.2, Qwen 2.5, Gemma 2 or Phi-3 mini). Bigger models write better but are slower and need more memory. A progress bar shows the download.</li>
+    <li><strong>Switch the helpers on.</strong> Tick <span class="btn">Use the AI helpers</span>. You can try the model first with <span class="btn">Test it</span>. The helper buttons then appear.</li>
+  </ol>
+
+  <h2>How your privacy is protected</h2>
+  <ul>
+    <li>The program only ever talks to Ollama on <strong>this PC</strong>. Nothing is sent over the internet.</li>
+    <li><strong>Private entries are never sent</strong>, and neither are summaries the AI wrote earlier.</li>
+    <li>The helpers are told to use only what you wrote and not to invent anything. Each result window has <strong>Show exactly what was sent to Ollama</strong>.</li>
+    <li>Nothing is saved until you choose to, and you can edit the text first. Entries containing AI text are marked <strong>AI-assisted</strong>; day summaries are marked <strong>AI summary</strong>, and don’t count towards your word counts, streaks or statistics.</li>
+  </ul>
+  <div class="callout note"><span class="label">Good to know</span><p>The first answer can take a minute while the model loads into memory. The helpers are entirely optional; the rest of the program works the same without them.</p></div>
+</section>
+
+<!-- ============================ 15 KEYS ============================ -->
+<section class="chapter" id="keys">
+  <h1><span class="num">Chapter 15</span>Keyboard shortcuts</h1>
+  <p class="lead">You can do almost everything without the mouse.</p>
+  <h2>Anywhere</h2>
+  <table>
+    <tr><th>Keys</th><th>Action</th></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td>New entry on the selected day</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>F</kbd></td><td>Search entries</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>T</kbd></td><td>Jump to today</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>R</kbd></td><td>Jump to a random entry (Surprise me)</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>L</kbd></td><td>Lock the journal</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>E</kbd></td><td>Export entries to PDF</td></tr>
+    <tr><td><kbd>F11</kbd></td><td>Full screen on or off (also works on the unlock screen)</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>Ctrl</kbd> + <kbd>−</kbd></td><td>Bigger or smaller text (<kbd>Ctrl</kbd> + <kbd>0</kbd> resets)</td></tr>
+  </table>
+  <h2>On the calendar</h2>
+  <table>
+    <tr><th>Keys</th><th>Action</th></tr>
+    <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Previous or next month, week, day or year</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>1</kbd> … <kbd>5</kbd></td><td>Day, Week, Month, Year and Photos view</td></tr>
+    <tr><td>Double-click</td><td>On a day: new entry. On an entry: edit it</td></tr>
+    <tr><td>Drag</td><td>Move an entry to another day or hour</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Cancel a drag</td></tr>
+  </table>
+  <h2>While writing</h2>
+  <table>
+    <tr><th>Keys</th><th>Action</th></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>Save the entry</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>D</kbd></td><td>Pin or unpin the entry</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>B</kbd> / <kbd>Ctrl</kbd> + <kbd>I</kbd></td><td>Bold / italic</td></tr>
+    <tr><td><kbd>Enter</kbd> (in the title)</td><td>Move into the text</td></tr>
+    <tr><td>Click again</td><td>A mood button or toolbar format switches itself off</td></tr>
+  </table>
+</section>
+
+<!-- ============================ 16 HELP ============================ -->
+<section class="chapter" id="help">
+  <h1><span class="num">Chapter 16</span>Troubleshooting and questions</h1>
+
+  <h2>I forgot my password</h2>
+  <p>If you made a recovery key, use <span class="btn">Forgot your password?</span> on the unlock screen (see <a href="#privacy">chapter 12</a>). Without a recovery key there is no way back in, which is what keeps your journal private. If you have an older backup whose password you remember, <span class="btn">Open a different diary…</span> can open it.</p>
+
+  <h2>The window is hiding my entries</h2>
+  <p>“Hide when in the background” blanks the window while it is not the one you are using. Click the window to show it again, or turn the setting off under <span class="menu">Settings → Security</span>.</p>
+
+  <h2>The journal locked while I was away</h2>
+  <p>That is Auto-lock. Enter your password to continue; anything you were writing is still there. You can lengthen or turn off Auto-lock under <span class="menu">Settings → Security</span>.</p>
+
+  <h2>I deleted an entry by mistake</h2>
+  <p>Press <span class="btn">Undo</span> at the top of the day panel straight away, or open <span class="menu">Settings → Your data → Recently deleted</span> and press <span class="btn">Restore</span>. Entries stay there for 30 days.</p>
+
+  <h2>I can’t find an entry</h2>
+  <p>Try <span class="btn">Timeline</span> or search with fewer words. Check that no filter is switched on in the search box, and remember private entries can’t be found by their text. They show on their day as “Private entry”.</p>
+
+  <h2>Saving fails, or the program says it cannot find a path</h2>
+  <p>The journal folder may be on a drive that is full, read-only or no longer plugged in. Check the drive, or use <span class="menu">Settings → Your data → Data location</span> to see where the journal is meant to be.</p>
+
+  <h2>A restored backup asks for a different password</h2>
+  <p>A backup keeps the password it had when it was made. Use that password (or its recovery key).</p>
+
+  <h2>Windows warns that the program may not be safe</h2>
+  <p>The program is not code-signed. In the “Windows protected your PC” window choose <strong>More info → Run anyway</strong>. If Windows refuses outright because Smart App Control is on, you can use the program on a PC where that is switched off.</p>
+
+  <h2>Letters or symbols appear as empty boxes in a PDF</h2>
+  <p>PDF exports use the fonts installed on your PC. Characters those fonts don’t have, such as some emoji, show as boxes.</p>
+
+  <h2>Where do I find this guide again?</h2>
+  <p><span class="menu">Settings → Help → User guide</span>. You can open it, or save a copy anywhere you like.</p>
+
+  <div class="callout tip" style="margin-top:10mm"><span class="label">Last word</span><p>Write a little, often. Every day leaves a mark.</p></div>
+</section>
+
+</body>
+</html>

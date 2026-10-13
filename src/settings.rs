@@ -259,6 +259,14 @@ impl DiaryApp {
             ui.add_space(26.0);
             section(ui, 4, &mut tops);
             card(ui, &p, width, |ui| {
+                row(ui, &p, "User guide", "A PDF that explains every part of the journal.", false, |ui| {
+                    if kit::button(ui, Look::Ghost, None, "Open", None).clicked() {
+                        self.open_user_guide();
+                    }
+                    if kit::button(ui, Look::Ghost, None, "Save a copy…", None).clicked() {
+                        self.save_user_guide();
+                    }
+                });
                 row(ui, &p, "Keyboard shortcuts", "Every shortcut in one list.", true, |ui| {
                     if kit::button(ui, Look::Ghost, None, "View", None).clicked() {
                         self.show_shortcuts = true;

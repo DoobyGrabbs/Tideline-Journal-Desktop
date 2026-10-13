@@ -10,6 +10,10 @@ pub(crate) fn requested() -> bool {
 
 /// Send all the program's files to a temporary folder (must run before anything touches them).
 pub(crate) fn redirect_data_dir() {
+    // A folder named in the environment wins (so a picture can show a tidy-looking path).
+    if std::env::var_os("TIDELINE_DATA_DIR").is_some() {
+        return;
+    }
     let dir = std::env::temp_dir().join(format!("tideline-demo-{}", std::process::id()));
     std::fs::create_dir_all(&dir).ok();
     // Safety: called at the very start of `main`, before any other thread exists.
@@ -67,13 +71,7 @@ pub(crate) fn data() -> Data {
 }
 
 /// `TIDELINE_DEMO=editor` opens the writing view with some text in it.
-pub(crate) fn wants(mode: &str) -> bool {
-    std::env::var("TIDELINE_DEMO").is_ok_and(|v| v == mode)
-}
 
-pub(crate) fn wants_editor() -> bool {
-    std::env::var("TIDELINE_DEMO").is_ok_and(|v| v == "editor")
-}
 
 pub(crate) fn fill_editor(app: &mut DiaryApp) {
     app.new_entry(app.selected);
@@ -102,5 +100,80 @@ pub(crate) fn add_picture(data: &mut Data) {
     data.images.insert("demo1".into(), demo_picture());
     if let Some(e) = data.entries.iter_mut().find(|e| e.id == 7) {
         e.text.push_str("\n\n![Pink light over the water](img:demo1)\n\nThe photo is from the same evening.");
+    }
+}
+
+/// Open the screen or dialog named by `TIDELINE_DEMO` (used to take the pictures for the user
+/// guide). `1` is the plain calendar.
+pub(crate) fn apply(app: &mut DiaryApp) {
+    let mode = std::env::var("TIDELINE_DEMO").unwrap_or_default();
+    app.data.trash.push(trash::Trashed {
+        entry: Entry { id: 90, date: "2026-10-05".into(), added_at: "2026-10-05 19:10:00".into(), category: "Personal".into(), text: "# A page I deleted\n\nChanged my mind about this one.".into(), ..Default::default() },
+        deleted_at: "2026-10-11 09:30:00".into(),
+    });
+    match mode.as_str() {
+        "view-year" => app.view = CalView::Year,
+        "view-week" => app.view = CalView::Week,
+        "view-day" => app.view = CalView::Day,
+        "photos" => app.view = CalView::Photos,
+        "insights" | "insights-writing" | "insights-lookback" => {
+            app.insights.open = true;
+            app.insights.tab = match mode.as_str() {
+                "insights-writing" => insights::Tab::Writing,
+                "insights-lookback" => insights::Tab::Review,
+                _ => insights::Tab::Mood,
+            };
+        }
+        "pinned" => app.show_pinned = true,
+        "pinned-expanded" => {
+            app.show_pinned = true;
+            app.expanded.insert(7);
+        }
+        "expanded" => {
+            app.expanded.insert(7);
+        }
+        "settings" | "settings-writing" | "settings-data" | "settings-display" => {
+            app.show_settings = true;
+            let section = match mode.as_str() {
+                "settings-writing" => 1,
+                "settings-data" => 2,
+                "settings-display" => 3,
+                _ => 0,
+            };
+            app.settings_section = section;
+            app.settings_jump = Some(section);
+        }
+        "editor" => fill_editor(app),
+        "editor-empty" => app.new_entry(app.selected),
+        "search" => {
+            app.search = "tide".into();
+            app.search_state.open = true;
+        }
+        "timeline" => app.search_state.open = true,
+        "categories" => app.show_categories = true,
+        "templates" => app.templates.open = true,
+        "export" => app.show_export = true,
+        "recovery" => app.show_recovery = true,
+        "trash" => app.show_trash = true,
+        "location" => app.show_location = true,
+        "shortcuts" => app.show_shortcuts = true,
+        "ai-setup" => app.ai.setup_open = true,
+        "password" => app.show_password = true,
+        "backups" => {
+            // A few dated copies of the (demo) diary, as automatic backups would have left.
+            if let Some(v) = app.vault.as_ref() {
+                let file = data_path();
+                if write_diary(&file, &app.data, v).is_ok() {
+                    let folder = backups::folder_for(&file);
+                    std::fs::create_dir_all(&folder).ok();
+                    for stamp in ["2026-10-12-081500", "2026-10-11-094500", "2026-10-09-210000", "2026-10-08-073000"] {
+                        std::fs::copy(&file, folder.join(format!("entries-{stamp}.json"))).ok();
+                    }
+                }
+            }
+            app.show_backups = true;
+            app.backups_dirty = true;
+        }
+        _ => {}
     }
 }

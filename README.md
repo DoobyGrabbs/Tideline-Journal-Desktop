@@ -173,3 +173,15 @@ Once decrypted, the data looks like this:
 ## Portable copy
 
 `cargo build --release` produces a single `tideline-journal.exe` (the fonts and icon are inside it, and the C runtime is linked in, so no installer or redistributable is needed). Run from any folder, including a USB drive, it keeps the diary in a `data` folder beside the exe; copy the exe and `data` together to move the journal. Files opened from an entry go to `data\opened-attachments-temporary`, so nothing is left on the PC it runs on, and the copying-across of old diaries only happens on a development machine. The exe is not code-signed, so Windows may show a SmartScreen warning, and a PC with Smart App Control on may refuse it. A ready-made zip (exe plus a short read-me) is built into `dist\` (ignored by git).
+
+## User guide
+
+A PDF guide to every function is built into the program: **Settings → Help → User guide** (Open, or Save a copy…). It is also kept at `assets/user-guide.pdf`.
+
+To rebuild it after changing `docs/user-guide/guide.html` (needs Microsoft Edge), run:
+
+```
+powershell -File docs/user-guide/build.ps1
+```
+
+The pictures in `docs/user-guide/img` come from demo mode (`TIDELINE_DEMO=<mode>`, see `src/demo.rs`). Rebuild the program afterwards so the new PDF is embedded.

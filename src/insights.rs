@@ -204,7 +204,7 @@ fn column_chart(ui: &mut egui::Ui, p: &Palette, width: f32, values: &[usize], la
 }
 
 fn columns_for(width: f32) -> usize {
-    if width >= 1000.0 {
+    if width >= 1250.0 {
         3
     } else if width >= 640.0 {
         2

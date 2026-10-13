@@ -38,6 +38,8 @@ fn accent_fill() -> Color32 {
 
 const RED: Color32 = theme::DANGER;
 const GREY: [u8; 3] = [156, 163, 175];
+/// The PDF user guide, built from `docs/user-guide` and offered under Settings → Help.
+const USER_GUIDE: &[u8] = include_bytes!("../assets/user-guide.pdf");
 
 /// The colours the windows draw with. Tideline Journal is a dark design, so there is one set.
 struct Palette {
@@ -427,18 +429,7 @@ impl DiaryApp {
             app.recovery_hint_dismissed = true;
             app.selected = NaiveDate::from_ymd_opt(2026, 10, 8).unwrap();
             app.month = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
-            app.insights.open = demo::wants("insights");
-            app.show_pinned = demo::wants("pinned") || demo::wants("pinned-expanded");
-            app.show_settings = demo::wants("settings");
-            if demo::wants("photos") {
-                app.view = CalView::Photos;
-            }
-            if demo::wants("expanded") || demo::wants("pinned-expanded") {
-                app.expanded.insert(7);
-            }
-            if demo::wants_editor() {
-                demo::fill_editor(&mut app);
-            }
+            demo::apply(&mut app);
         }
         app
     }
@@ -1256,12 +1247,14 @@ clear_open_files(); // leftovers from opening attachments last time
                         ("Ctrl+B / Ctrl+I", "Bold / italic (while writing)"),
                         ("Click again", "A mood button or toolbar format removes it"),
                     ];
+                    egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 170.0).max(200.0)).show(ui, |ui| {
                     egui::Grid::new("shortcut_grid").num_columns(2).spacing([24.0, 8.0]).show(ui, |ui| {
                         for (keys, what) in rows {
                             ui.label(RichText::new(keys).strong().monospace().color(p.title));
                             ui.label(RichText::new(what).color(p.ink));
                             ui.end_row();
                         }
+                    });
                     });
                 });
             });
@@ -2275,6 +2268,29 @@ clear_open_files(); // leftovers from opening attachments last time
             }
             Err(e) => self.status = format!("Save failed: couldn't open the file ({e})"),
         }
+    }
+
+    /// Write the user guide to a temporary folder and open it in the PDF viewer Windows picks.
+    fn open_user_guide(&mut self) {
+        let dir = open_files_dir();
+        let path = dir.join("Tideline Journal user guide.pdf");
+        match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, USER_GUIDE)) {
+            Ok(()) => {
+                std::process::Command::new("cmd").args(["/C", "start", ""]).arg(&path).spawn().ok();
+            }
+            Err(e) => self.status = format!("Save failed: couldn't open the user guide ({e})"),
+        }
+    }
+
+    /// Let the user keep a copy of the user guide wherever they like.
+    fn save_user_guide(&mut self) {
+        let Some(dest) = rfd::FileDialog::new().set_file_name("Tideline Journal user guide.pdf").add_filter("PDF document", &["pdf"]).save_file() else {
+            return;
+        };
+        self.status = match std::fs::write(&dest, USER_GUIDE) {
+            Ok(()) => "Saved the user guide".into(),
+            Err(e) => format!("Save failed: couldn't write the user guide ({e})"),
+        };
     }
 
     fn categories_window(&mut self, ctx: &egui::Context) {
@@ -3894,6 +3910,14 @@ More words.".into();
         assert!(dir.starts_with(location::data_dir()), "{}", dir.display());
         assert_eq!(dir.file_name().unwrap(), "opened-attachments-temporary");
         assert!(!dir.starts_with(std::env::temp_dir().join("TidelineJournal-open")));
+    }
+
+    #[test]
+    fn the_user_guide_is_a_real_pdf() {
+        assert!(USER_GUIDE.starts_with(b"%PDF-"), "the embedded guide is a PDF");
+        assert!(USER_GUIDE.len() > 100_000, "the guide has its pictures");
+        let doc = lopdf::Document::load_mem(USER_GUIDE).expect("the guide parses");
+        assert!(doc.get_pages().len() > 10, "the guide has many pages");
     }
 
     #[test]
