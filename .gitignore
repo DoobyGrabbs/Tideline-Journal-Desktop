@@ -1,2 +1,7 @@
 target
 entries.json
+
+# The diary itself and its backups never go into git.
+data/
+backups/
+config.json

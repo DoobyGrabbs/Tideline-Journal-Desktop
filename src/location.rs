@@ -1,7 +1,10 @@
 //! Where the diary file lives.
 //!
-//! By default it is `%APPDATA%\VibeDiary\entries.json`. The folder can be changed from the
-//! settings; the choice is remembered in `%APPDATA%\VibeDiary\config.json`.
+//! By default the diary lives in a `data` folder next to the program (`data/entries.json`, with
+//! its backups in `data/backups`), where it is easy to find. While developing, "next to the
+//! program" means the project folder. The folder can be changed from the settings; the choice is
+//! remembered in `data/config.json`. Diaries kept by earlier versions in `%APPDATA%/VibeDiary`
+//! are copied across the first time (the originals are left alone).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -9,7 +12,10 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 pub const FILE_NAME: &str = "entries.json";
-const APP_FOLDER: &str = "VibeDiary";
+/// The folder earlier versions used inside `%APPDATA%`.
+const LEGACY_APPDATA_FOLDER: &str = "VibeDiary";
+/// The default diary folder, next to the program.
+const DATA_FOLDER: &str = "data";
 
 /// How the window opens.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -48,16 +54,37 @@ fn app_data_root() -> PathBuf {
 
 /// Tests must never touch the real diary, so while they run everything lives in a throw-away folder.
 fn test_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("vibe-diary-tests-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("tideline-journal-tests-{}", std::process::id()));
     std::fs::create_dir_all(&dir).ok();
     dir
+}
+
+/// The folder the program lives in. A program run from the build folder (`target\...`) counts as
+/// living in the project folder, so development and the installed copy both get a `data` folder
+/// they can be seen to own.
+fn app_home() -> PathBuf {
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    match exe_dir {
+        Some(dir) if dir.ancestors().any(|a| a.file_name().is_some_and(|n| n == "target")) => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        Some(dir) => dir,
+        None => PathBuf::from("."),
+    }
 }
 
 fn default_dir() -> PathBuf {
     if cfg!(test) {
         return test_dir();
     }
-    app_data_root().join(APP_FOLDER)
+    // `TIDELINE_DATA_DIR` points the program somewhere else entirely (demo mode uses it).
+    if let Some(dir) = std::env::var_os("TIDELINE_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    app_home().join(DATA_FOLDER)
+}
+
+/// Where earlier versions kept the diary and the settings file.
+fn legacy_appdata_dir() -> PathBuf {
+    app_data_root().join(LEGACY_APPDATA_FOLDER)
 }
 
 fn config_path() -> PathBuf {
@@ -160,9 +187,21 @@ pub fn data_dir() -> PathBuf {
     let mut current = CURRENT.lock().unwrap();
     current
         .get_or_insert_with(|| {
+            let custom = std::env::var_os("TIDELINE_DATA_DIR").is_some();
+            if !custom {
+                // Settings made in the old place come along (once).
+                let old_config = legacy_appdata_dir().join("config.json");
+                if !config_path().exists() && old_config.is_file() {
+                    std::fs::create_dir_all(default_dir()).ok();
+                    std::fs::copy(&old_config, config_path()).ok();
+                }
+            }
             let dir = resolve(&config_path(), &default_dir());
-            let legacy = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FILE_NAME);
-            migrate_legacy(&dir, &legacy);
+            if !custom {
+                // Diaries kept by earlier versions are copied across (the originals stay).
+                migrate_legacy(&dir, &legacy_appdata_dir().join(FILE_NAME));
+                migrate_legacy(&dir, &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FILE_NAME));
+            }
             dir
         })
         .clone()
@@ -261,8 +300,9 @@ mod isolation {
     fn tests_never_use_the_real_diary_folder() {
         assert!(data_dir().starts_with(std::env::temp_dir()), "{}", data_dir().display());
         assert!(config_path().starts_with(std::env::temp_dir()));
-        let real = app_data_root().join(APP_FOLDER);
-        assert!(!data_dir().starts_with(&real) && !config_path().starts_with(&real));
+        for real in [legacy_appdata_dir(), app_home().join(DATA_FOLDER)] {
+            assert!(!data_dir().starts_with(&real) && !config_path().starts_with(&real), "{}", real.display());
+        }
     }
 }
 
@@ -364,3 +404,32 @@ mod accent_tests {
 /// Tests that use the real settings helpers share one throw-away settings file, so they take turns.
 #[cfg(test)]
 pub(crate) static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+mod default_folder_tests {
+    use super::*;
+
+    #[test]
+    fn a_program_run_from_the_build_folder_lives_in_the_project_folder() {
+        // Tests run from `target/.../deps`, so "next to the program" is the project folder.
+        assert_eq!(app_home(), PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        assert_eq!(app_home().join(DATA_FOLDER).file_name().unwrap(), "data");
+    }
+
+    #[test]
+    fn an_old_diary_is_copied_into_the_data_folder_but_never_over_one_that_is_there() {
+        let dir = std::env::temp_dir().join(format!("diary-default-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let (old, new) = (dir.join("old"), dir.join("data"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join(FILE_NAME), "old diary").unwrap();
+        assert!(migrate_legacy(&new, &old.join(FILE_NAME)));
+        assert_eq!(std::fs::read_to_string(new.join(FILE_NAME)).unwrap(), "old diary");
+        assert!(old.join(FILE_NAME).exists(), "the original stays");
+        // A diary already in the data folder is never replaced.
+        std::fs::write(new.join(FILE_NAME), "current diary").unwrap();
+        assert!(!migrate_legacy(&new, &old.join(FILE_NAME)));
+        assert_eq!(std::fs::read_to_string(new.join(FILE_NAME)).unwrap(), "current diary");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

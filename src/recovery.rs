@@ -10,7 +10,7 @@ impl DiaryApp {
     /// The text saved by "Save as text file…".
     fn recovery_file_text(key: &str) -> String {
         format!(
-            "VibeDiary recovery key\r\n\r\nRecovery key: {key}\r\nMade on: {}\r\n\r\n{NOTE}\r\n\r\n\
+            "Tideline Journal recovery key\r\n\r\nRecovery key: {key}\r\nMade on: {}\r\n\r\n{NOTE}\r\n\r\n\
              To use it: on the unlock screen choose \"Forgot your password?\", type the key, and pick a new password.\r\n",
             Local::now().format("%Y-%m-%d")
         )

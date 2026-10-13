@@ -2584,7 +2584,7 @@ impl eframe::App for DiaryApp {
 
 fn main() -> eframe::Result {
     if demo::requested() {
-        demo::redirect_app_data();
+        demo::redirect_data_dir();
     }
     let icon = egui::IconData { rgba: icon::rgba(256), width: 256, height: 256 };
     // The window always opens at its normal size; "maximised" and "full screen" are applied on the
@@ -4113,7 +4113,7 @@ fn import_attachment(data: &mut Data, path: &std::path::Path) -> Result<Attachme
 
 /// Where attachments are written when they are opened.
 fn open_files_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join("VibeDiary-open")
+    std::env::temp_dir().join("TidelineJournal-open")
 }
 
 /// Delete the temporary copies made by "Open".

@@ -1,6 +1,6 @@
 //! Demo mode (`TIDELINE_DEMO=1`): starts unlocked with a few made-up entries so the interface can
 //! be looked at without a real diary. Everything it saves goes to a throw-away folder: the
-//! program points `%APPDATA%` there before it reads or writes anything.
+//! program points its data folder there before it reads or writes anything.
 
 use super::*;
 
@@ -9,11 +9,11 @@ pub(crate) fn requested() -> bool {
 }
 
 /// Send all the program's files to a temporary folder (must run before anything touches them).
-pub(crate) fn redirect_app_data() {
+pub(crate) fn redirect_data_dir() {
     let dir = std::env::temp_dir().join(format!("tideline-demo-{}", std::process::id()));
     std::fs::create_dir_all(&dir).ok();
     // Safety: called at the very start of `main`, before any other thread exists.
-    unsafe { std::env::set_var("APPDATA", &dir) };
+    unsafe { std::env::set_var("TIDELINE_DATA_DIR", &dir) };
 }
 
 pub(crate) fn data() -> Data {

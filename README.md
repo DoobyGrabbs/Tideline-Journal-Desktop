@@ -2,7 +2,7 @@
 
 *Every day leaves a mark.*
 
-A private diary / journal for Windows, written in Rust with [eframe/egui](https://github.com/emilk/egui). (The GitHub project is still called VibeDiary; the program and its data folder keep working as before.)
+A private diary / journal for Windows, written in Rust with [eframe/egui](https://github.com/emilk/egui).
 
 Write down your thoughts each day with rich formatting and pictures, tag them with colour-coded categories, rate your mood, and see at a glance which days have entries. Everything is encrypted with a password.
 
@@ -48,7 +48,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 **Look and feel**
 - **Settings** is a full page (the Settings item at the bottom of the side menu): its own left column (Back to journal, then Security, Writing, Your data, Display and Help, which scroll to the section) and cards of rows, each with a title, a line of explanation and its control on the right (button, drop-down or switch). Changes are saved as you make them. Pop-up dialogs still open for changing the password, the recovery key, templates, backups, export, data location, the bin and the shortcut list.
 - **Tideline Journal design**: a dark interface (there is no light mode) following `TIDELINE_JOURNAL_DESIGN.md`: a title bar with the search box and window controls (drag it to move the window, double-click to maximise), a side menu (New entry, Today, Calendar, Timeline, Pinned, Photos, Insights, your categories with their counts, Lock journal and Settings), the calendar in the middle and the day panel on the right. Text is set in two typefaces bundled with the program (see `assets/fonts`, both under the SIL Open Font License): Hanken Grotesk for the interface and Newsreader for headings and for everything you write. **Timeline** lists every entry newest first. The Settings menu is the one at the bottom of the side menu.- Pop-up windows are draggable and resizable.
-- **Window on startup** (**Settings → Display**): a normal window, maximised (fills the screen, keeps the taskbar) or full screen (covers the taskbar). `F11` switches full screen on and off any time, even on the unlock screen. The choice is kept in the small plain settings file `%APPDATA%VibeDiarynfig.json` (next to the data-location setting), because the window opens before the diary is unlocked.
+- **Window on startup** (**Settings → Display**): a normal window, maximised (fills the screen, keeps the taskbar) or full screen (covers the taskbar). `F11` switches full screen on and off any time, even on the unlock screen. The choice is kept in the small plain settings file `datanfig.json` (next to the data-location setting), because the window opens before the diary is unlocked.
 - **Accent colour** (**Settings → Display**): the one colour you can change. Pick one of eight (Tide, Sky, Violet, Rose, Lamp, Ember, Moss, Slate) or any colour of your own; it drives the main buttons, the selected day, focus and the prompt card, and is automatically adjusted so it stays readable on the dark background. It applies instantly and is also used on the unlock screen (kept in the same plain `config.json`). A choice saved under the earlier blue design is ignored. PDF exports keep their blue headings.
 - Keyboard shortcuts (see below, or **Settings → Keyboard shortcuts**).
 
@@ -104,9 +104,9 @@ Use `cargo run --release` for an optimised build. The build embeds the app icon 
 
 ## Where your data is stored
 
-Entries, categories, images and settings are saved, encrypted, to `entries.json` in `%APPDATA%\VibeDiary` by default. You can choose another folder from **Settings → Data location**; the choice is remembered in `%APPDATA%\VibeDiary\config.json`.
+Entries, categories, images and settings are saved, encrypted, to `entries.json` in a **`data` folder next to the program** (while developing, in the project folder), with the automatic backups in `data/backups`, so it is easy to find and copy. You can choose another folder from **Settings → Data location**; the choice is remembered in `data/config.json`. The `data` and `backups` folders are in `.gitignore`, so a diary is never committed. Set the environment variable `TIDELINE_DATA_DIR` to run the program against a different folder.
 
-Earlier development builds kept the diary next to the source code. If a diary is found there and none exists yet in the new location, it is **copied** across the first time you run the app (the original is left alone, so you can delete it once you are happy).
+Earlier versions kept the diary in `%APPDATA%/VibeDiary` (or, before that, next to the source code). If one is found and there is none yet in the `data` folder, it is **copied** across the first time you run the app (the original is left alone, so you can delete it once you are happy).
 
 ## Encryption
 
