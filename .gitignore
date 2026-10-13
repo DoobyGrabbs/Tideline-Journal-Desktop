@@ -5,3 +5,4 @@ entries.json
 data/
 backups/
 config.json
+dist/

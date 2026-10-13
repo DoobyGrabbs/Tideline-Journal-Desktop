@@ -3879,6 +3879,14 @@ More words.".into();
         apply_format(&ctx, &mut ed, markdown::Format::Italic);
         assert_eq!(ed.text, "**hello** world");
     }
+
+    #[test]
+    fn opened_attachments_are_kept_beside_the_diary_not_on_the_host_pc() {
+        let dir = open_files_dir();
+        assert!(dir.starts_with(location::data_dir()), "{}", dir.display());
+        assert_eq!(dir.file_name().unwrap(), "opened-attachments-temporary");
+        assert!(!dir.starts_with(std::env::temp_dir().join("TidelineJournal-open")));
+    }
     #[test]
     fn choosing_a_colour_theme_recolours_the_app_and_is_remembered() {
         let _turn = location::CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -4255,9 +4263,12 @@ fn import_attachment(data: &mut Data, path: &std::path::Path) -> Result<Attachme
     Ok(Attachment { id, name, size })
 }
 
-/// Where attachments are written when they are opened.
+/// Where attachments are written when they are opened (in the data folder, so a portable copy on a
+/// USB drive leaves nothing on the host PC).
 fn open_files_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join("TidelineJournal-open")
+    // Beside the diary, so nothing is left behind on the PC the program is run on. The long
+    // name makes sure only this folder is ever cleared.
+    location::data_dir().join("opened-attachments-temporary")
 }
 
 /// Delete the temporary copies made by "Open".

@@ -62,10 +62,22 @@ fn test_dir() -> PathBuf {
 /// The folder the program lives in. A program run from the build folder (`target\...`) counts as
 /// living in the project folder, so development and the installed copy both get a `data` folder
 /// they can be seen to own.
+/// True for a folder Cargo builds into: `target/release`, `target/debug` or one level below
+/// (`deps`). A folder merely called "target" somewhere on a USB drive does not count.
+fn is_build_folder(dir: &Path) -> bool {
+    let names: Vec<&std::ffi::OsStr> = dir.ancestors().filter_map(|a| a.file_name()).collect();
+    names.windows(2).take(2).any(|w| w[1] == "target" && (w[0] == "release" || w[0] == "debug"))
+}
+
+/// True when the program is running from a build folder, as during development.
+fn running_from_build_folder() -> bool {
+    std::env::current_exe().ok().and_then(|e| e.parent().map(is_build_folder)).unwrap_or(false)
+}
+
 fn app_home() -> PathBuf {
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
     match exe_dir {
-        Some(dir) if dir.ancestors().any(|a| a.file_name().is_some_and(|n| n == "target")) => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        Some(dir) if is_build_folder(&dir) => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         Some(dir) => dir,
         None => PathBuf::from("."),
     }
@@ -188,7 +200,10 @@ pub fn data_dir() -> PathBuf {
     current
         .get_or_insert_with(|| {
             let custom = std::env::var_os("TIDELINE_DATA_DIR").is_some();
-            if !custom {
+            // Copying old diaries and settings across is for the developer's own machine; a portable
+            // copy on someone else's PC must never pick up files from that PC.
+            let migrate = !custom && running_from_build_folder();
+            if migrate {
                 // Settings made in the old place come along (once).
                 let old_config = legacy_appdata_dir().join("config.json");
                 if !config_path().exists() && old_config.is_file() {
@@ -197,7 +212,7 @@ pub fn data_dir() -> PathBuf {
                 }
             }
             let dir = resolve(&config_path(), &default_dir());
-            if !custom {
+            if migrate {
                 // Diaries kept by earlier versions are copied across (the originals stay).
                 migrate_legacy(&dir, &legacy_appdata_dir().join(FILE_NAME));
                 migrate_legacy(&dir, &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FILE_NAME));
@@ -431,5 +446,31 @@ mod default_folder_tests {
         assert!(!migrate_legacy(&new, &old.join(FILE_NAME)));
         assert_eq!(std::fs::read_to_string(new.join(FILE_NAME)).unwrap(), "current diary");
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod portable_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_build_folder_run_is_treated_as_development() {
+        // Tests run from `target/.../deps`, which is a build folder.
+        assert!(running_from_build_folder());
+    }
+}
+
+#[cfg(test)]
+mod build_folder_tests {
+    use super::*;
+
+    #[test]
+    fn only_cargos_own_output_folders_count_as_a_build_folder() {
+        for yes in ["C:/p/target/release", "C:/p/target/debug", "C:/p/target/release/deps", "E:/Code/Tideline Journal/target/debug/deps"] {
+            assert!(is_build_folder(Path::new(yes)), "{yes}");
+        }
+        for no in ["D:/Tideline Journal", "D:/target/Tideline Journal", "D:/target", "D:/target/release-notes", "D:/target/Tideline/release", "C:/Program Files/Tideline Journal", "D:/release/target"] {
+            assert!(!is_build_folder(Path::new(no)), "{no}");
+        }
     }
 }
