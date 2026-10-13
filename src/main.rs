@@ -225,16 +225,24 @@ fn inspect() -> Disk {
 /// Encrypt and write the diary. The result is decrypted again and checked before the old
 /// file is replaced, and the replacement is atomic, so a failure can't destroy your data.
 fn save(data: &Data, vault: &vault::Vault) -> Result<(), String> {
+    write_diary(&data_path(), data, vault)
+}
+
+/// The same, to a given file. The folder is created if it isn't there yet (the first save of a
+/// new diary, or of a portable copy that has just been unzipped).
+fn write_diary(path: &std::path::Path, data: &Data, vault: &vault::Vault) -> Result<(), String> {
     let json = serde_json::to_vec(data).map_err(|e| e.to_string())?;
     let sealed = vault.seal(&json)?;
     let env = vault::Envelope::parse(&sealed).ok_or("could not re-read the encrypted data")?;
     if vault.open(&env)? != json {
         return Err("encryption check failed".into());
     }
-    let path = data_path();
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(|e| format!("couldn't create the folder {}: {e}", folder.display()))?;
+    }
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, sealed).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 fn key(d: NaiveDate) -> String {
@@ -3886,6 +3894,22 @@ More words.".into();
         assert!(dir.starts_with(location::data_dir()), "{}", dir.display());
         assert_eq!(dir.file_name().unwrap(), "opened-attachments-temporary");
         assert!(!dir.starts_with(std::env::temp_dir().join("TidelineJournal-open")));
+    }
+
+    #[test]
+    fn the_first_save_creates_the_data_folder() {
+        let base = std::env::temp_dir().join(format!("diary-first-save-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        // Neither the folder nor its parent exist yet: a newly unzipped portable copy.
+        let file = base.join("Tideline Journal").join("data").join("entries.json");
+        let v = vault::Vault::create("pw").unwrap();
+        write_diary(&file, &fresh_data(), &v).unwrap();
+        let env = vault::Envelope::parse(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert!(vault::Vault::unlock(&env, "pw").is_ok());
+        assert!(!file.with_extension("json.tmp").exists(), "no temporary file is left behind");
+        // Saving again over it is fine too.
+        write_diary(&file, &fresh_data(), &v).unwrap();
+        std::fs::remove_dir_all(&base).ok();
     }
     #[test]
     fn choosing_a_colour_theme_recolours_the_app_and_is_remembered() {
