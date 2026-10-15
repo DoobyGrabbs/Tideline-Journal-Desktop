@@ -2133,7 +2133,10 @@ clear_open_files(); // leftovers from opening attachments last time
                                 if ui.small_button("Save as…").clicked() {
                                     save_attachment = Some(a.clone());
                                 }
-                                if ui.small_button("Open").clicked() {
+                                if is_risky_file(&a.name) {
+                                    // Programs and scripts can be saved but are never launched from the diary.
+                                    ui.label(RichText::new("can't be opened here").size(12.0).color(p.faint)).on_hover_text(RISKY_HINT);
+                                } else if ui.small_button("Open").clicked() {
                                     open_attachment = Some(a.clone());
                                 }
                             });
@@ -2255,6 +2258,11 @@ clear_open_files(); // leftovers from opening attachments last time
     /// Write an attached file to a temporary folder and open it with the program Windows picks.
     /// The temporary copy is not encrypted; the folder is emptied when the diary locks or starts.
     fn open_attachment(&mut self, a: &Attachment) {
+        // Opening hands the file to Windows, which would run a program or script. Never do that.
+        if is_risky_file(&a.name) {
+            self.status = format!("“{}” {RISKY_HINT_SHORT}", a.name);
+            return;
+        }
         let Some(bytes) = self.attachment_bytes(a) else {
             self.status = "Save failed: that attachment is missing from the diary".into();
             return;
@@ -3103,6 +3111,28 @@ mod tests {
         assert!(app.data.files.contains_key(&att.id), "files in use are kept");
         assert!(is_image_path(std::path::Path::new("a/b/Photo.JPG")) && !is_image_path(std::path::Path::new("notes.txt")));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn programs_and_scripts_are_never_opened_from_the_diary() {
+        for risky in ["setup.exe", "RUN.BAT", "notes.PS1", "x.vbs", "app.msi", "link.lnk", "page.hta", "tool.jar", "a.b.c.cmd", "invoice.pdf.exe", "sneaky.exe.", "sneaky.exe ", "sneaky.exe. .", "driver.sys", "macro.js", "shortcut.url"] {
+            assert!(is_risky_file(risky), "{risky} should be treated as risky");
+        }
+        for fine in ["notes.txt", "photo.JPG", "report.pdf", "archive.zip", "sheet.xlsx", "README", "exe", "my.exe.txt", ".bashrc", "song.mp3", "scriptures.docx", "bat"] {
+            assert!(!is_risky_file(fine), "{fine} should be fine");
+        }
+
+        // Even if the Open button were reached some other way, nothing is written or launched.
+        let mut app = app_with_entries();
+        let file = std::env::temp_dir().join(format!("diary-risky-{}.exe", std::process::id()));
+        std::fs::write(&file, "not really a program").unwrap();
+        let att = import_attachment(&mut app.data, &file).unwrap();
+        assert!(app.attachment_bytes(&att).is_some(), "it is still stored and can be saved as a copy");
+        let _ = std::fs::remove_dir_all(open_files_dir());
+        app.open_attachment(&att);
+        assert!(app.status.contains("never opened"), "{}", app.status);
+        assert!(!open_files_dir().exists(), "no temporary copy is made");
+        std::fs::remove_file(&file).ok();
     }
 
     #[test]
@@ -4309,6 +4339,25 @@ fn import_attachment(data: &mut Data, path: &std::path::Path) -> Result<Attachme
     data.files.insert(id.clone(), base64::engine::general_purpose::STANDARD.encode(&bytes));
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
     Ok(Attachment { id, name, size })
+}
+
+/// File types that run code or change the system when Windows opens them. They can be kept in the
+/// diary and saved as a copy, but are never opened from here, so a diary someone else made (or a
+/// careless click) can't start a program.
+const RISKY_EXTENSIONS: [&str; 41] = [
+    "exe", "com", "scr", "pif", "bat", "cmd", "ps1", "ps1xml", "psm1", "psd1", "vbs", "vbe", "vb", "js", "jse", "wsf", "wsh", "wsc", "sct", "msi", "msp", "mst", "msc", "lnk", "hta", "jar", "reg", "cpl", "dll",
+    "ocx", "sys", "appx", "msix", "appxbundle", "msixbundle", "application", "gadget", "inf", "scf", "url", "chm",
+];
+
+const RISKY_HINT: &str = "This is a program or script type, so it can be saved as a copy but is never opened from the diary.";
+const RISKY_HINT_SHORT: &str = "is a program or script type, so it can only be saved as a copy, never opened from the diary.";
+
+/// Is this a file that would run code if Windows opened it? Case doesn't matter, and neither do
+/// trailing dots or spaces, which Windows ignores (`setup.exe.` is `setup.exe`).
+fn is_risky_file(name: &str) -> bool {
+    let name = name.trim_end_matches(['.', ' ']);
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    RISKY_EXTENSIONS.contains(&ext.as_str())
 }
 
 /// Where attachments are written when they are opened (in the data folder, so a portable copy on a

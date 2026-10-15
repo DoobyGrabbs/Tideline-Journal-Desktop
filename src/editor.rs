@@ -80,7 +80,12 @@ impl DiaryApp {
                 }
             } else {
                 match import_attachment(data, path) {
-                    Ok(a) => ed.attachments.push(a),
+                    Ok(a) => {
+                        if is_risky_file(&a.name) {
+                            *editor_msg = format!("“{}” {RISKY_HINT_SHORT}", a.name);
+                        }
+                        ed.attachments.push(a);
+                    }
                     Err(e) => *editor_msg = e,
                 }
             }
@@ -280,8 +285,8 @@ impl DiaryApp {
                                         if let Some(path) = rfd::FileDialog::new().pick_file() {
                                             match import_attachment(data, &path) {
                                                 Ok(a) => {
+                                                    *editor_msg = if is_risky_file(&a.name) { format!("“{}” {RISKY_HINT_SHORT}", a.name) } else { String::new() };
                                                     ed.attachments.push(a);
-                                                    editor_msg.clear();
                                                 }
                                                 Err(e) => *editor_msg = e,
                                             }
