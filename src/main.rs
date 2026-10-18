@@ -187,6 +187,73 @@ fn default_categories() -> Vec<Category> {
 }
 
 
+/// Record ids and the data-model version (see `tideline_core::schema`). The desktop keeps `uid`,
+/// `schema` and `diary_id` in each type's `extra` map, so the fields travel with the data untouched.
+fn uid_missing(extra: &serde_json::Map<String, serde_json::Value>) -> bool {
+    !extra.get("uid").and_then(|u| u.as_str()).is_some_and(tideline_core::ids::is_uid)
+}
+
+fn set_uid(extra: &mut serde_json::Map<String, serde_json::Value>, uid: String) {
+    extra.insert("uid".into(), uid.into());
+}
+
+/// Is this diary still in the older format (no `schema`, or below the current one)?
+fn needs_upgrade(data: &Data) -> bool {
+    data.extra.get("schema").and_then(|s| s.as_u64()).unwrap_or(2) < tideline_core::schema::SCHEMA
+}
+
+/// Refuse a diary saved by a newer program rather than risk damaging it.
+fn check_schema(data: &Data) -> Result<(), String> {
+    match data.extra.get("schema").and_then(|s| s.as_u64()).unwrap_or(2) {
+        s if s > tideline_core::schema::SCHEMA => Err("This diary was saved by a newer version of Tideline Journal. Update the app to open it.".into()),
+        _ => Ok(()),
+    }
+}
+
+/// Give every entry, category and template a `uid`: one worked out from its old identity when the
+/// diary is first upgraded (so every copy of the diary agrees), a random one for anything new.
+/// Returns true if anything changed. The result matches `tideline_core::schema::upgrade`.
+fn assign_ids(data: &mut Data, vault: &vault::Vault) -> bool {
+    use tideline_core::{ids, schema};
+    let upgrading = needs_upgrade(data);
+    let diary = schema::diary_id(vault);
+    let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    let mut changed = upgrading;
+    let mut give = |extra: &mut serde_json::Map<String, serde_json::Value>, kind: &str, old: String, entry_id: Option<u64>| {
+        if uid_missing(extra) {
+            set_uid(extra, if upgrading { ids::legacy_uid(&diary, kind, &old) } else { ids::new_uid(now) });
+            changed = true;
+        }
+        if let (true, Some(id)) = (upgrading, entry_id) {
+            extra.entry("legacy_id").or_insert(id.into());
+        }
+    };
+    for c in &mut data.categories {
+        give(&mut c.extra, schema::KIND_CATEGORY, c.name.clone(), None);
+    }
+    for e in &mut data.entries {
+        give(&mut e.extra, schema::KIND_ENTRY, e.id.to_string(), Some(e.id));
+    }
+    for t in &mut data.trash {
+        give(&mut t.entry.extra, schema::KIND_ENTRY, t.entry.id.to_string(), Some(t.entry.id));
+    }
+    for t in &mut data.templates {
+        give(&mut t.extra, schema::KIND_TEMPLATE, t.name.clone(), None);
+    }
+    if upgrading {
+        data.extra.insert("diary_id".into(), diary.into());
+        data.extra.insert("schema".into(), schema::SCHEMA.into());
+    }
+    changed
+}
+
+/// Copy the diary file as it is on disk to `before-upgrade-<time>.json` beside it.
+fn back_up_before_upgrade(path: &std::path::Path) -> Result<(), String> {
+    let folder = path.parent().unwrap_or(std::path::Path::new("."));
+    let name = format!("before-upgrade-{}.json", Local::now().format("%Y%m%d-%H%M%S"));
+    std::fs::copy(path, folder.join(name)).map(|_| ()).map_err(|e| format!("Couldn't back up the diary before upgrading it: {e}"))
+}
+
 fn fresh_data() -> Data {
     Data { categories: default_categories(), entries: Vec::new(), images: BTreeMap::new(), files: BTreeMap::new(), trash: Vec::new(), templates: Vec::new(), settings: Settings::default(), extra: Default::default() }
 }
@@ -527,6 +594,9 @@ clear_open_files(); // leftovers from opening attachments last time
         self.rev += 1;
         self.purge_trash();
         self.drop_unused_images();
+        if let Some(v) = &self.vault {
+            assign_ids(&mut self.data, v);
+        }
         self.status = match &self.vault {
             Some(v) => match save(&self.data, v) {
                 Ok(()) => "Saved".into(),
@@ -561,8 +631,14 @@ clear_open_files(); // leftovers from opening attachments last time
         let new_diary = matches!(lock.mode, LockMode::Create | LockMode::Encrypt(_));
         let result: Result<(vault::Vault, Data), String> = match lock.mode.clone() {
             LockMode::Unlock(env) => vault::Vault::unlock(&env, &password).and_then(|(v, plain)| {
-                let data = serde_json::from_slice::<Data>(&plain).map_err(|e| e.to_string())?;
-                if env.is_legacy() {
+                let mut data = serde_json::from_slice::<Data>(&plain).map_err(|e| e.to_string())?;
+                check_schema(&data)?;
+                if needs_upgrade(&data) {
+                    // The older file is kept beside the diary before the upgraded one replaces it.
+                    back_up_before_upgrade(&data_path())?;
+                    assign_ids(&mut data, &v);
+                    save(&data, &v)?;
+                } else if env.is_legacy() {
                     // Write the diary in the newer format (the one that supports a recovery key) now.
                     save(&data, &v).ok();
                 }
@@ -570,7 +646,12 @@ clear_open_files(); // leftovers from opening attachments last time
             }),
             LockMode::Recover(env) => check_new_password(&password, &lock.confirm).and_then(|()| {
                 let (mut v, plain) = vault::Vault::unlock_with_recovery(&env, &lock.recovery_key)?;
-                let data = serde_json::from_slice::<Data>(&plain).map_err(|e| e.to_string())?;
+                let mut data = serde_json::from_slice::<Data>(&plain).map_err(|e| e.to_string())?;
+                check_schema(&data)?;
+                if needs_upgrade(&data) {
+                    back_up_before_upgrade(&data_path())?;
+                }
+                assign_ids(&mut data, &v);
                 v.set_password(&password)?;
                 save(&data, &v)?;
                 Ok((v, data))
@@ -2696,6 +2777,8 @@ fn popup_header(ui: &mut egui::Ui, p: &Palette, title: &str) -> bool {
 fn create_vault(password: &str, confirm: &str, data: Data) -> Result<(vault::Vault, Data), String> {
     check_new_password(password, confirm)?;
     let v = vault::Vault::create(password)?;
+    let mut data = data;
+    assign_ids(&mut data, &v);
     save(&data, &v)?;
     Ok((v, data))
 }
@@ -2807,6 +2890,86 @@ mod tests {
         assert_eq!(again["templates"][0]["uid"], "t1");
         assert_eq!(again["settings"]["phone_only_setting"], true);
         assert_eq!(again["settings"]["auto_lock_minutes"], 5);
+    }
+
+    /// The desktop and the shared core must give an old diary exactly the same ids and fields, or two
+    /// devices holding copies would disagree about which entry is which.
+    #[test]
+    fn upgrading_an_old_diary_matches_the_shared_core() {
+        let old = serde_json::json!({
+            "categories": [{"name": "Work", "color": [1, 2, 3]}],
+            "entries": [{"id": 4, "date": "2026-10-01", "added_at": "2026-10-01 08:00:00", "category": "Work", "text": "a"},
+                        {"id": 7, "date": "2026-10-02", "added_at": "2026-10-02 08:00:00", "category": "Work", "text": "b", "mystery": 1}],
+            "trash": [{"entry": {"id": 9, "date": "2026-10-03", "added_at": "2026-10-03 08:00:00", "category": "Work", "text": "c"}, "deleted_at": "2026-10-04 09:00:00"}],
+            "templates": [{"name": "Mine", "body": "x"}],
+            "settings": {"daily_word_goal": 10}
+        });
+        let v = vault::Vault::create("correct horse").unwrap();
+        let mut data: Data = serde_json::from_value(old.clone()).unwrap();
+        assert!(needs_upgrade(&data));
+        assert!(assign_ids(&mut data, &v));
+        assert!(!needs_upgrade(&data));
+        let mut core = old;
+        assert!(tideline_core::schema::upgrade(&mut core, &tideline_core::schema::diary_id(&v)));
+        // The desktop also writes its default fields, so compare what upgrading adds.
+        let mine = serde_json::to_value(&data).unwrap();
+        for key in ["schema", "diary_id"] {
+            assert_eq!(mine[key], core[key], "{key}");
+        }
+        let pairs = |d: &serde_json::Value| -> Vec<(serde_json::Value, serde_json::Value)> {
+            let mut all: Vec<&serde_json::Value> = d["categories"].as_array().unwrap().iter().chain(d["entries"].as_array().unwrap()).chain(d["templates"].as_array().unwrap()).collect();
+            all.push(&d["trash"][0]["entry"]);
+            all.iter().map(|r| (r["uid"].clone(), r["legacy_id"].clone())).collect()
+        };
+        assert_eq!(pairs(&mine), pairs(&core));
+        assert_eq!(mine["entries"][1]["mystery"], 1);
+        // A second pass changes nothing, and a new entry gets a fresh uid.
+        assert!(!assign_ids(&mut data, &v));
+        data.entries.push(Entry { id: 10, ..Default::default() });
+        assert!(assign_ids(&mut data, &v));
+        let mine = serde_json::to_value(&data).unwrap();
+        assert!(tideline_core::ids::is_uid(mine["entries"][2]["uid"].as_str().unwrap()));
+        assert_eq!(mine["entries"][0]["uid"], core["entries"][0]["uid"]);
+    }
+
+    /// `TIDELINE_TEST_FILE=<path> TIDELINE_TEST_PW=<password> cargo test --release real_diary -- --ignored`:
+    /// reads a real diary (never writes it) and checks the desktop upgrade against the shared core.
+    #[test]
+    #[ignore]
+    fn real_diary_upgrades_like_the_core() {
+        let (Ok(src), Ok(pw)) = (std::env::var("TIDELINE_TEST_FILE"), std::env::var("TIDELINE_TEST_PW")) else { return };
+        let env = vault::Envelope::parse(&std::fs::read_to_string(src).unwrap()).unwrap();
+        let (v, plain) = vault::Vault::unlock(&env, &pw).unwrap();
+        let original: serde_json::Value = serde_json::from_slice(&plain).unwrap();
+        let mut data: Data = serde_json::from_slice(&plain).unwrap();
+        assert!(assign_ids(&mut data, &v));
+        let mine = serde_json::to_value(&data).unwrap();
+        let mut core = original.clone();
+        tideline_core::schema::upgrade(&mut core, &tideline_core::schema::diary_id(&v));
+        assert_eq!(mine["diary_id"], core["diary_id"]);
+        for key in ["entries", "categories"] {
+            let (a, b) = (mine[key].as_array().unwrap(), core[key].as_array().unwrap());
+            assert_eq!(a.len(), b.len());
+            for (x, y) in a.iter().zip(b) {
+                assert_eq!(x["uid"], y["uid"], "{key}");
+            }
+        }
+        // Nothing the person wrote is lost or changed by a round trip through the desktop's types.
+        for (x, o) in mine["entries"].as_array().unwrap().iter().zip(original["entries"].as_array().unwrap()) {
+            for (k, val) in o.as_object().unwrap() {
+                assert_eq!(&x[k], val, "field {k}");
+            }
+        }
+        assert_eq!(mine["images"], original["images"]);
+        println!("OK: {} entries", data.entries.len());
+    }
+
+    #[test]
+    fn a_diary_from_a_newer_program_is_refused() {
+        let newer: Data = serde_json::from_value(serde_json::json!({"schema": 99, "categories": [], "entries": []})).unwrap();
+        assert!(check_schema(&newer).is_err());
+        let current: Data = serde_json::from_value(serde_json::json!({"schema": 3, "categories": [], "entries": []})).unwrap();
+        assert!(check_schema(&current).is_ok());
     }
 
     #[test]
