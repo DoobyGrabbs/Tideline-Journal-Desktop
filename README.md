@@ -165,10 +165,10 @@ Once decrypted, the data looks like this:
 - `src/export.rs` builds the PDF.
 - `src/location.rs` decides where the diary file lives and moves it.
 - `src/templates.rs` holds the templates and writing prompts and their window. `src/ollama.rs` is the small client for a local Ollama server, and `src/ai.rs` the AI helpers (requests, background tasks, the setup window and result window).
-- `src/vault.rs` contains the encryption: the password, the recovery key and the wrapped data key. `src/recovery.rs` is the Recovery key window; `src/trash.rs` is Recently deleted.
+- The encryption (the password, the recovery key and the wrapped data key) lives in the shared **`tideline-core`** library, in its own repository checked out next to this one (`../tideline-core`), and is shared with the Android app. `src/recovery.rs` is the Recovery key window; `src/trash.rs` is Recently deleted.
 - `src/theme.rs` holds Tideline Journal's colours (fixed tokens plus the accent and everything derived from it, with contrast checks); `src/fonts.rs` installs the bundled typefaces; `src/kit.rs` draws the outline icons, mood faces and the custom buttons, chips, switch and date picker; `src/editor.rs` is the writing view; `src/search.rs` and `src/backups.rs` are search and automatic backups.
 - `src/icon.rs` draws the app icon (the Tideline Journal mark); `build.rs` turns it into the `.exe` icon. `src/demo.rs` is a look-around mode: run with the environment variable `TIDELINE_DEMO=1` to start unlocked with made-up entries (nothing real is read or written).
-- `Cargo.toml` lists the dependencies: `eframe`/`egui_extras` (UI), `chrono`/`jiff` (dates), `serde`/`serde_json`, `pulldown-cmark` (Markdown), `image` (pictures), `rfd` (file dialogs), `argon2`/`chacha20poly1305`/`base64`/`getrandom` (encryption), `genpdf`/`lopdf` (PDF), `ureq` (talking to Ollama on this PC), and `winresource` (build only).
+- `Cargo.toml` lists the dependencies: `eframe`/`egui_extras` (UI), `chrono`/`jiff` (dates), `serde`/`serde_json`, `pulldown-cmark` (Markdown), `image` (pictures), `rfd` (file dialogs), `tideline-core` (the encryption, shared with the Android app), `base64`/`getrandom`, `genpdf`/`lopdf` (PDF), `ureq` (talking to Ollama on this PC), and `winresource` (build only).
 
 ## Portable copy
 

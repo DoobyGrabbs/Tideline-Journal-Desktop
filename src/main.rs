@@ -29,7 +29,8 @@ mod stats;
 mod templates;
 mod theme;
 mod trash;
-mod vault;
+// The vault (password-based encryption of the diary file) lives in the shared core.
+use tideline_core::vault;
 
 /// The accent colour for fills (white-ish text goes on top of it, see `theme::Shades::on_accent`).
 fn accent_fill() -> Color32 {

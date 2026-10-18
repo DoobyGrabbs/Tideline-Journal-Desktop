@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-argon2 = "0.6.0"
+# The shared core, in its own repository checked out next to this one.
+tideline-core = { path = "../tideline-core" }
 base64 = "0.23.1"
-chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
 eframe = "0.36.2"
 egui_extras = { version = "0.36.2", features = ["datepicker"] }
