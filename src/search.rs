@@ -477,7 +477,7 @@ mod tests {
         v[2].mood = Some(3);
         v[2].pinned = true;
         v[4].sensitive = true;
-        v[1].attachments.push(Attachment { id: "f1".into(), name: "Budget.xlsx".into(), size: 10 });
+        v[1].attachments.push(Attachment { id: "f1".into(), name: "Budget.xlsx".into(), size: 10, extra: Default::default() });
         v
     }
 
@@ -536,7 +536,7 @@ mod tests {
         assert_eq!(hits[0].snippet, vec![("Private entry".to_string(), false)]);
         // A private entry's attachments aren't searched either.
         let mut e = sample();
-        e[4].attachments.push(Attachment { id: "x".into(), name: "diary-secret.pdf".into(), size: 1 });
+        e[4].attachments.push(Attachment { id: "x".into(), name: "diary-secret.pdf".into(), size: 1, extra: Default::default() });
         assert!(find(&e, "diary-secret", &plain()).is_empty());
         let mut f = plain();
         f.with_files = true;

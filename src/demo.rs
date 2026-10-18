@@ -110,6 +110,7 @@ pub(crate) fn apply(app: &mut DiaryApp) {
     app.data.trash.push(trash::Trashed {
         entry: Entry { id: 90, date: "2026-10-05".into(), added_at: "2026-10-05 19:10:00".into(), category: "Personal".into(), text: "# A page I deleted\n\nChanged my mind about this one.".into(), ..Default::default() },
         deleted_at: "2026-10-11 09:30:00".into(),
+        extra: Default::default(),
     });
     match mode.as_str() {
         "view-year" => app.view = CalView::Year,

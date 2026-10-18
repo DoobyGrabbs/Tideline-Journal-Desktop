@@ -8,6 +8,9 @@ use super::*;
 pub(crate) struct Template {
     pub name: String,
     pub body: String,
+    /// Fields written by a newer version of the app: kept untouched so saving never loses them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Name and Markdown body. `{date}`, `{weekday}` and `{time}` are filled in when a template is used.
@@ -264,7 +267,7 @@ impl DiaryApp {
             self.templates.msg = "The template is empty.".into();
         } else {
             let renamed = draft.index.and_then(|i| self.data.templates.get(i)).map(|t| t.name.clone());
-            let template = Template { name: name.clone(), body: draft.body.clone() };
+            let template = Template { name: name.clone(), body: draft.body.clone(), extra: Default::default() };
             match draft.index {
                 Some(i) if i < self.data.templates.len() => self.data.templates[i] = template,
                 _ => self.data.templates.push(template),

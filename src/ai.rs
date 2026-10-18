@@ -413,7 +413,7 @@ impl DiaryApp {
     /// Save a day summary as its own entry, in an "AI" category and marked as AI-written.
     fn ai_save_summary(&mut self, date: NaiveDate, text: &str) {
         if !self.data.categories.iter().any(|c| c.name == "AI") {
-            self.data.categories.push(Category { name: "AI".into(), color: [168, 85, 247] });
+            self.data.categories.push(Category { name: "AI".into(), color: [168, 85, 247], extra: Default::default() });
         }
         let id = self.data.entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
         let time = if date == Local::now().date_naive() { Local::now().format("%H:%M:%S").to_string() } else { "23:59:00".into() };

@@ -445,7 +445,7 @@ mod tests {
             entry(2, "2026-10-08", "Second entry", None),
             entry(3, "2026-10-09", "Another day\n\nwith two paragraphs", Some(2)),
         ];
-        let cats = vec![Category { name: "Work".into(), color: [251, 191, 36] }];
+        let cats = vec![Category { name: "Work".into(), color: [251, 191, 36], extra: Default::default() }];
         let images = BTreeMap::from([("i1".to_string(), png_b64())]);
         for include_images in [true, false] {
             let report = Report {

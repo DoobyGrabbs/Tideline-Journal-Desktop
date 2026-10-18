@@ -10,6 +10,9 @@ pub(crate) const TRASH_DAYS: i64 = 30;
 pub(crate) struct Trashed {
     pub entry: Entry,
     pub deleted_at: String,
+    /// Fields written by a newer version of the app: kept untouched so saving never loses them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Trashed {
@@ -25,7 +28,7 @@ impl DiaryApp {
     pub(crate) fn trash_entry(&mut self, id: u64) {
         let Some(pos) = self.data.entries.iter().position(|e| e.id == id) else { return };
         let entry = self.data.entries.remove(pos);
-        self.data.trash.push(Trashed { entry, deleted_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string() });
+        self.data.trash.push(Trashed { entry, deleted_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), extra: Default::default() });
         self.last_trashed = Some(id);
         self.revealed.remove(&id);
         self.persist();

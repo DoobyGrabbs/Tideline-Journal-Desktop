@@ -90,6 +90,9 @@ fn palette(_ctx: &egui::Context) -> Palette {
 struct Category {
     name: String,
     color: [u8; 3],
+    /// Fields written by a newer version of the app: kept untouched so saving never loses them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -119,6 +122,9 @@ struct Entry {
     /// Written entirely by the AI (a day summary): left out of word counts and statistics.
     #[serde(default)]
     generated: bool,
+    /// Fields written by a newer version of the app: kept untouched so saving never loses them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -139,6 +145,9 @@ struct Data {
     templates: Vec<templates::Template>,
     #[serde(default)]
     settings: Settings,
+    /// Fields written by a newer version of the app: kept untouched so saving never loses them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -162,21 +171,24 @@ struct Settings {
     ai_model: String,
     /// How many automatic backups to keep; 0 turns them off.
     backup_keep: u32,
+    /// Settings written by a newer version of the app (the phone's, for instance): kept untouched.
+    #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true, default_template: String::new(), show_prompts: true, ai_enabled: false, ai_model: String::new(), backup_keep: backups::DEFAULT_KEEP }
+        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true, default_template: String::new(), show_prompts: true, ai_enabled: false, ai_model: String::new(), backup_keep: backups::DEFAULT_KEEP, extra: Default::default() }
     }
 }
 
 fn default_categories() -> Vec<Category> {
-    theme::CATEGORY_COLOURS.into_iter().map(|(n, c)| Category { name: n.into(), color: c }).collect()
+    theme::CATEGORY_COLOURS.into_iter().map(|(n, c)| Category { name: n.into(), color: c, extra: Default::default() }).collect()
 }
 
 
 fn fresh_data() -> Data {
-    Data { categories: default_categories(), entries: Vec::new(), images: BTreeMap::new(), files: BTreeMap::new(), trash: Vec::new(), templates: Vec::new(), settings: Settings::default() }
+    Data { categories: default_categories(), entries: Vec::new(), images: BTreeMap::new(), files: BTreeMap::new(), trash: Vec::new(), templates: Vec::new(), settings: Settings::default(), extra: Default::default() }
 }
 
 /// What is currently on disk.
@@ -2382,7 +2394,7 @@ clear_open_files(); // leftovers from opening attachments last time
                         let name = self.new_cat_name.trim().to_string();
                         let dup = self.data.categories.iter().any(|c| c.name.eq_ignore_ascii_case(&name));
                         if ui.add_enabled(!name.is_empty() && !dup, egui::Button::new("Add")).clicked() {
-                            self.data.categories.push(Category { name, color: self.new_cat_color });
+                            self.data.categories.push(Category { name, color: self.new_cat_color, extra: Default::default() });
                             self.new_cat_name.clear();
                             changed = true;
                         }
@@ -2762,6 +2774,39 @@ mod tests {
     fn tiny_png(path: &std::path::Path, alpha: u8) {
         let img = image::RgbaImage::from_pixel(8, 6, image::Rgba([200, 30, 30, alpha]));
         img.save(path).unwrap();
+    }
+
+    /// A diary written by a newer app (extra fields at every level) must come back out unchanged.
+    #[test]
+    fn unknown_fields_survive_a_save() {
+        let original = serde_json::json!({
+            "schema": 3, "diary_id": "abc",
+            "categories": [{"name": "Work", "color": [1, 2, 3], "uid": "c1"}],
+            "entries": [{
+                "id": 1, "date": "2026-10-01", "added_at": "2026-10-01 08:00:00", "category": "Work",
+                "text": "hi", "uid": "e1", "clock": {"text": "0001-0000-aa"},
+                "attachments": [{"id": "f1", "name": "a.txt", "size": 1, "uid": "a1"}]
+            }],
+            "trash": [{"entry": {"id": 2, "date": "2026-10-02", "added_at": "2026-10-02 08:00:00",
+                "category": "Work", "text": "x", "uid": "e2"}, "deleted_at": "2026-10-03 09:00:00", "tomb": true}],
+            "templates": [{"name": "T", "body": "b", "uid": "t1"}],
+            "settings": {"auto_lock_minutes": 5, "phone_only_setting": true},
+            "sync": {"cursor": 7}
+        });
+        let data: Data = serde_json::from_value(original.clone()).unwrap();
+        let again = serde_json::to_value(&data).unwrap();
+        for key in ["schema", "diary_id", "sync"] {
+            assert_eq!(again[key], original[key], "{key}");
+        }
+        assert_eq!(again["categories"][0]["uid"], "c1");
+        assert_eq!(again["entries"][0]["uid"], "e1");
+        assert_eq!(again["entries"][0]["clock"], original["entries"][0]["clock"]);
+        assert_eq!(again["entries"][0]["attachments"][0]["uid"], "a1");
+        assert_eq!(again["trash"][0]["tomb"], true);
+        assert_eq!(again["trash"][0]["entry"]["uid"], "e2");
+        assert_eq!(again["templates"][0]["uid"], "t1");
+        assert_eq!(again["settings"]["phone_only_setting"], true);
+        assert_eq!(again["settings"]["auto_lock_minutes"], 5);
     }
 
     #[test]
@@ -3202,7 +3247,7 @@ mod tests {
         app.data.entries[0].text = format!("Hello {picture}");
         app.data.entries[0].pinned = true;
         app.data.entries[1].sensitive = true;
-        app.data.entries[2].attachments.push(Attachment { id: "f1".into(), name: "a.pdf".into(), size: 1500 });
+        app.data.entries[2].attachments.push(Attachment { id: "f1".into(), name: "a.pdf".into(), size: 1500, extra: Default::default() });
         app.rev += 1;
 
         for view in [CalView::Month, CalView::Day, CalView::Photos] {
@@ -3290,7 +3335,7 @@ mod tests {
         assert_eq!(app.entries_in(from, to).len(), 3);
         app.export_private = true;
         assert_eq!(app.entries_in(from, to).len(), 4);
-        app.data.entries[0].attachments.push(Attachment { id: "f1".into(), name: "report.pdf".into(), size: 2048 });
+        app.data.entries[0].attachments.push(Attachment { id: "f1".into(), name: "report.pdf".into(), size: 2048, extra: Default::default() });
         let report = export::Report { title: "T".into(), subtitle: "S".into(), entries: app.entries_in(from, to), include_images: false };
         assert!(export::build_pdf(&report, &app.data.categories, &app.data.images).unwrap().starts_with(b"%PDF"));
     }
@@ -3325,7 +3370,7 @@ mod tests {
         app.data.images.insert("i1".into(), "x".into());
         app.data.files.insert("f1".into(), "x".into());
         app.data.entries[1].text = "![p](img:i1)".into();
-        app.data.entries[1].attachments.push(Attachment { id: "f1".into(), name: "a.txt".into(), size: 1 });
+        app.data.entries[1].attachments.push(Attachment { id: "f1".into(), name: "a.txt".into(), size: 1, extra: Default::default() });
         let id = app.data.entries[1].id;
         app.trash_entry(id);
         // Its picture and attachment are not thrown away while it can still be restored.
@@ -3426,7 +3471,7 @@ mod tests {
         assert_eq!(app.editor.as_ref().unwrap().text, text, "unknown names do nothing");
 
         // Your own template, with placeholders, used for every new entry.
-        app.data.templates.push(templates::Template { name: "Mine".into(), body: "# {weekday} {time}\n\n".into() });
+        app.data.templates.push(templates::Template { name: "Mine".into(), body: "# {weekday} {time}\n\n".into(), extra: Default::default() });
         app.data.settings.default_template = "Mine".into();
         app.new_entry_at(d(2026, 10, 9), Some(7)); // 7:00 on a Friday
         assert_eq!(app.editor.as_ref().unwrap().text, "# Friday 07:00\n\n");
@@ -3461,7 +3506,7 @@ mod tests {
         let ctx = egui::Context::default();
         setup_style(&ctx);
         let mut app = app_with_entries();
-        app.data.templates.push(templates::Template { name: "Mine".into(), body: "x".into() });
+        app.data.templates.push(templates::Template { name: "Mine".into(), body: "x".into(), extra: Default::default() });
         app.templates.open = true;
         app.new_entry(d(2026, 10, 9));
         for draft in [None, Some(templates::Draft::default())] {
@@ -4308,6 +4353,9 @@ struct Attachment {
     name: String,
     /// Size in bytes.
     size: u64,
+    /// Fields written by a newer version of the app: kept untouched so saving never loses them.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 const MAX_ATTACHMENT: u64 = 25 * 1024 * 1024;
@@ -4339,7 +4387,7 @@ fn import_attachment(data: &mut Data, path: &std::path::Path) -> Result<Attachme
     }
     data.files.insert(id.clone(), base64::engine::general_purpose::STANDARD.encode(&bytes));
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
-    Ok(Attachment { id, name, size })
+    Ok(Attachment { id, name, size, extra: Default::default() })
 }
 
 /// File types that run code or change the system when Windows opens them. They can be kept in the
