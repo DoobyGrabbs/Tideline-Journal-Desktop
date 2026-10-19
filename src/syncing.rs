@@ -18,9 +18,9 @@ use tideline_core::hlc::Clock;
 use tideline_core::sync::{self as core_sync, Poll, Report, Request, Response, Sync, SyncState, ValueReplica};
 use tideline_core::{device, merge};
 
-/// How long after the last change the diary is synced, and how often it is synced regardless.
+/// How long after the last change the diary is synced, and how often it is synced regardless (so changes from other devices turn up quickly).
 const AFTER_EDIT: Duration = Duration::from_secs(5);
-const EVERY: Duration = Duration::from_secs(300);
+const EVERY: Duration = Duration::from_secs(30);
 /// After a failure (offline, the server is off) wait this long before trying again.
 const RETRY: Duration = Duration::from_secs(60);
 
@@ -461,7 +461,7 @@ impl DiaryApp {
             if !self.sync.notice.is_empty() && !matches!(self.sync.status, Status::Failed(_)) {
                 paragraph(ui, &self.sync.notice.clone(), p.muted);
             }
-            paragraph(ui, "It syncs by itself a few seconds after you save, and every few minutes. Anyone with the sync code can add to your synced data but cannot read it, so keep it private.", p.faint);
+            paragraph(ui, "It syncs by itself a few seconds after you save, and about every 30 seconds. Anyone with the sync code can add to your synced data but cannot read it, so keep it private.", p.faint);
         } else if !self.sync.notice.is_empty() {
             paragraph(ui, &self.sync.notice.clone(), p.muted);
         }
