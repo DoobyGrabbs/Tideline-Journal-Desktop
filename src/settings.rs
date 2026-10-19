@@ -5,7 +5,7 @@
 use super::*;
 use crate::kit::{self, Icon, Look};
 
-const SECTIONS: [(&str, Icon); 5] = [("Security", Icon::Shield), ("Writing", Icon::Pencil), ("Your data", Icon::Database), ("Display", Icon::Sliders), ("Help", Icon::Help)];
+const SECTIONS: [(&str, Icon); 6] = [("Security", Icon::Shield), ("Writing", Icon::Pencil), ("Your data", Icon::Database), ("Sync", Icon::Shuffle), ("Display", Icon::Sliders), ("Help", Icon::Help)];
 
 const AUTO_LOCK: [(&str, u32); 5] = [("Off", 0), ("After 1 minute", 1), ("After 5 minutes", 5), ("After 10 minutes", 10), ("After 30 minutes", 30)];
 const WORD_GOALS: [(&str, u32); 6] = [("Off", 0), ("100 words", 100), ("250 words", 250), ("500 words", 500), ("750 words", 750), ("1,000 words", 1000)];
@@ -13,7 +13,7 @@ const TEXT_SIZES: [(&str, f32); 7] = [("80%", 0.8), ("90%", 0.9), ("100%", 1.0),
 const START_MODES: [(&str, location::StartMode); 3] = [("Normal window", location::StartMode::Normal), ("Maximised", location::StartMode::Maximized), ("Full screen", location::StartMode::Fullscreen)];
 
 /// One row of a settings card: title and description on the left, `control` on the right.
-fn row(ui: &mut egui::Ui, p: &Palette, title: &str, description: &str, last: bool, control: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn row(ui: &mut egui::Ui, p: &Palette, title: &str, description: &str, last: bool, control: impl FnOnce(&mut egui::Ui)) {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, 78.0), Sense::hover());
     let control_w = (width * 0.42).clamp(150.0, 330.0);
@@ -32,7 +32,7 @@ fn row(ui: &mut egui::Ui, p: &Palette, title: &str, description: &str, last: boo
 }
 
 /// A card holding the rows of one section.
-fn card(ui: &mut egui::Ui, p: &Palette, width: f32, add: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn card(ui: &mut egui::Ui, p: &Palette, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border_soft)).corner_radius(14).show(ui, |ui| {
         ui.set_width(width - 2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -199,9 +199,14 @@ impl DiaryApp {
                 });
             });
 
-            // ---- Display ----
+            // ---- Sync ----
             ui.add_space(26.0);
             section(ui, 3, &mut tops);
+            self.sync_card(ui, &p, width);
+
+            // ---- Display ----
+            ui.add_space(26.0);
+            section(ui, 4, &mut tops);
             card(ui, &p, width, |ui| {
                 row(ui, &p, "Accent colour", "Buttons, the selected day and the focus ring. Shades are adjusted to stay readable.", false, |ui| {
                     let current = theme::accent();
@@ -257,7 +262,7 @@ impl DiaryApp {
 
             // ---- Help ----
             ui.add_space(26.0);
-            section(ui, 4, &mut tops);
+            section(ui, 5, &mut tops);
             card(ui, &p, width, |ui| {
                 row(ui, &p, "User guide", "A PDF that explains every part of the journal.", false, |ui| {
                     if kit::button(ui, Look::Ghost, None, "Open", None).clicked() {

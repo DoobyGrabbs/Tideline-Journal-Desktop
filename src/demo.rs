@@ -133,14 +133,20 @@ pub(crate) fn apply(app: &mut DiaryApp) {
         "expanded" => {
             app.expanded.insert(7);
         }
-        "settings" | "settings-writing" | "settings-data" | "settings-display" => {
+        "settings" | "settings-writing" | "settings-data" | "settings-sync" | "settings-sync-on" | "settings-display" => {
             app.show_settings = true;
             let section = match mode.as_str() {
                 "settings-writing" => 1,
                 "settings-data" => 2,
-                "settings-display" => 3,
+                "settings-sync" | "settings-sync-on" => 3,
+                "settings-display" => 4,
                 _ => 0,
             };
+            if mode == "settings-sync-on" {
+                app.sync.state = tideline_core::sync::SyncState { server: "http://192.168.1.20:8787".into(), token: "demo-token-not-a-real-secret".into(), ..Default::default() };
+                app.sync.status = syncing::Status::Idle(Some("14:02".into()));
+                app.sync.notice = "Everything is up to date.".into();
+            }
             app.settings_section = section;
             app.settings_jump = Some(section);
         }

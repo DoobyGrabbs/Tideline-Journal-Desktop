@@ -26,6 +26,7 @@ mod reports;
 mod search;
 mod settings;
 mod stats;
+mod syncing;
 mod templates;
 mod theme;
 mod trash;
@@ -407,6 +408,8 @@ fn check_new_password(password: &str, confirm: &str) -> Result<(), String> {
 }
 
 struct DiaryApp {
+    /// Syncing with the other devices (see `syncing.rs`).
+    sync: syncing::Runtime,
     /// Empty placeholder while the diary is locked.
     data: Data,
     /// Present while unlocked; used to encrypt on every save.
@@ -519,6 +522,7 @@ clear_open_files(); // leftovers from opening attachments last time
         let today = Local::now().date_naive();
         let mode = current_lock_mode();
         Self {
+            sync: syncing::Runtime::default(),
             data: fresh_data(),
             vault: None,
             lock: Some(Lock::new(mode)),
@@ -597,6 +601,7 @@ clear_open_files(); // leftovers from opening attachments last time
         if let Some(v) = &self.vault {
             assign_ids(&mut self.data, v);
         }
+        self.sync_stamp();
         self.status = match &self.vault {
             Some(v) => match save(&self.data, v) {
                 Ok(()) => "Saved".into(),
@@ -665,6 +670,7 @@ clear_open_files(); // leftovers from opening attachments last time
                 self.vault = Some(v);
                 self.data = data;
                 self.rev += 1;
+                self.sync_unlocked(&data_path());
                 self.data.images.extend(std::mem::take(&mut self.draft_images));
                 self.last_activity = std::time::Instant::now();
                 self.lock = None;
@@ -684,6 +690,7 @@ clear_open_files(); // leftovers from opening attachments last time
 
     /// Forget the key and the decrypted data and go back to the lock screen.
     fn lock_now(&mut self) {
+        self.sync_locked();
         let mode = current_lock_mode();
         // An open draft survives locking (it only exists in memory), along with its images.
         self.draft_images = match &self.editor {
@@ -2122,6 +2129,11 @@ clear_open_files(); // leftovers from opening attachments last time
             ui.add_space(6.0);
             ui.label(RichText::new(&self.status).small().color(p.faint));
         }
+        let sync_line = self.sync_status_text();
+        if !sync_line.is_empty() {
+            ui.add_space(4.0);
+            ui.label(RichText::new(sync_line).small().color(p.faint));
+        }
         // Undo for the last delete.
         let mut undo = None;
         if let Some(id) = self.last_trashed.filter(|id| self.data.trash.iter().any(|t| t.entry.id == *id)) {
@@ -2602,6 +2614,9 @@ impl eframe::App for DiaryApp {
         if self.lock.is_none() {
             self.auto_backup();
         }
+        if self.lock.is_none() {
+            self.sync_tick(&ctx);
+        }
         // Auto-lock after a period without any input.
         if self.lock.is_none() {
             if ctx.input(|i| !i.events.is_empty()) {
@@ -2841,7 +2856,10 @@ fn import_image(data: &mut Data, path: &std::path::Path) -> Result<String, Strin
         img.to_rgb8().write_with_encoder(enc).map_err(|e| e.to_string())?;
     }
 
-    let mut id = format!("i{}", chrono::Utc::now().timestamp_millis());
+    // A random suffix, so two devices adding a picture in the same moment never choose the same name.
+    let mut salt = [0u8; 4];
+    getrandom::fill(&mut salt).map_err(|e| e.to_string())?;
+    let mut id = format!("i{}{:08x}", chrono::Utc::now().timestamp_millis(), u32::from_be_bytes(salt));
     while data.images.contains_key(&id) {
         id.push('x');
     }
@@ -2942,7 +2960,9 @@ mod tests {
         let (v, plain) = vault::Vault::unlock(&env, &pw).unwrap();
         let original: serde_json::Value = serde_json::from_slice(&plain).unwrap();
         let mut data: Data = serde_json::from_slice(&plain).unwrap();
-        assert!(assign_ids(&mut data, &v));
+        // An already-upgraded diary (the usual case now) has nothing left to do.
+        let was_old = needs_upgrade(&data);
+        assert_eq!(assign_ids(&mut data, &v), was_old);
         let mine = serde_json::to_value(&data).unwrap();
         let mut core = original.clone();
         tideline_core::schema::upgrade(&mut core, &tideline_core::schema::diary_id(&v));

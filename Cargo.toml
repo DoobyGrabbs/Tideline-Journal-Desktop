@@ -31,3 +31,7 @@ winresource = "0.1.31"
 [[bin]]
 name = "tideline-journal"
 path = "src/main.rs"
+
+[dev-dependencies]
+# The real sync server, to test syncing end to end.
+tideline-server = { path = "../tideline-core/server" }
