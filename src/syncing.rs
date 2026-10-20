@@ -58,6 +58,8 @@ pub(crate) struct Runtime {
     pub confirm_change: bool,
     /// The code typed in "Use a new code".
     pub new_code_text: String,
+    /// The name typed in Settings (for a new setup, or to rename).
+    pub name_text: String,
     /// What the state was before "Use a new code", to go back to if the new one is refused.
     previous: Option<SyncState>,
 }
@@ -80,6 +82,7 @@ impl Default for Runtime {
             show_code: false,
             confirm_change: false,
             new_code_text: String::new(),
+            name_text: String::new(),
             previous: None,
         }
     }
@@ -150,7 +153,7 @@ fn run_machine(base: &str, state: SyncState, replica: &mut ValueReplica) -> (Syn
 pub(crate) fn job(state: SyncState, mut replica: ValueReplica, register: bool) -> Outcome {
     let base = state.server.clone();
     if register {
-        let registered = http(&base, &core_sync::register_request(&replica, &state.token)).and_then(|r| core_sync::registered(&r));
+        let registered = http(&base, &core_sync::register_request_named(&replica, &state.token, &state.name)).and_then(|r| core_sync::registered(&r));
         if let Err(e) = registered {
             return Outcome { result: Err(e), state, data: replica.data };
         }
@@ -378,9 +381,29 @@ impl DiaryApp {
             self.sync.notice = "Type the address of your sync server first.".into();
             return;
         }
-        self.sync.state = SyncState { server, token: core_sync::new_token(), ..SyncState::default() };
+        let typed = core_sync::clean_name(&self.sync.name_text);
+        let name = if typed.is_empty() { "My diary".to_string() } else { typed };
+        self.sync.state = SyncState { server, token: core_sync::new_token(), name, ..SyncState::default() };
         self.sync.notice.clear();
         self.sync_start(ctx, true);
+    }
+
+    /// Give the diary a new name on the server (the next sync tells it; until then the old name stays on the server).
+    pub(crate) fn sync_rename(&mut self, ctx: &egui::Context) {
+        let name = core_sync::clean_name(&self.sync.name_text);
+        if name.is_empty() {
+            self.sync.notice = "Type a name for the diary first.".into();
+            return;
+        }
+        self.sync.state.begin_rename(&name);
+        self.sync.name_text.clear();
+        let id = self.diary_id();
+        if let Some(vault) = self.vault.as_ref() {
+            core_sync::save_state(&self.sync.path, &id, vault, &self.sync.state).ok();
+        }
+        self.sync.notice.clear();
+        self.sync.retry_at = None;
+        self.sync_start(ctx, false);
     }
 
     /// Choose a new sync code. The next sync swaps it on the server; until the server confirms, the old code stays
@@ -443,7 +466,8 @@ impl DiaryApp {
 
     /// What the person needs to type on another device: the server address and the secret code.
     pub(crate) fn sync_pairing_text(&self) -> String {
-        format!("Server: {}\nSync code: {}", self.sync.state.server, self.sync.state.token)
+        let diary = if self.sync.state.name.is_empty() { String::new() } else { format!("Diary: {}\n", self.sync.state.name) };
+        format!("{diary}Server: {}\nSync code: {}", self.sync.state.server, self.sync.state.token)
     }
     /// The Sync card in Settings. Rows show one line each, so anything longer goes in wrapped text beneath.
     pub(crate) fn sync_card(&mut self, ui: &mut egui::Ui, p: &Palette, width: f32) {
@@ -461,6 +485,9 @@ impl DiaryApp {
         }
         crate::settings::card(ui, p, width, |ui| {
             if !configured {
+                crate::settings::row(ui, p, "Diary name", "So you can tell what you are connected to, for example Dave's Diary.", false, |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.sync.name_text).desired_width(250.0).hint_text("My diary"));
+                });
                 crate::settings::row(ui, p, "Server address", "For example 192.168.1.20:8787", true, |ui| {
                     if kit::button(ui, Look::Primary, None, if running { "Setting up…" } else { "Set up sync" }, None).clicked() && !running {
                         self.sync_set_up(&ctx);
@@ -468,6 +495,13 @@ impl DiaryApp {
                     ui.add(egui::TextEdit::singleline(&mut self.sync.server_text).desired_width(210.0).hint_text("192.168.1.20:8787"));
                 });
             } else {
+                let shown = if let Some(pending) = &self.sync.state.pending_name { format!("{pending} (updating…)") } else if self.sync.state.name.is_empty() { "No name yet. Give it one so you can tell what you are connected to.".to_string() } else { self.sync.state.name.clone() };
+                crate::settings::row(ui, p, "Diary", &shown, false, |ui| {
+                    if kit::button(ui, Look::Ghost, None, "Rename", None).clicked() && !running {
+                        self.sync_rename(&ctx);
+                    }
+                    ui.add(egui::TextEdit::singleline(&mut self.sync.name_text).desired_width(190.0).hint_text("new name"));
+                });
                 let description = match &self.sync.status {
                     Status::Running => "Syncing now…".to_string(),
                     Status::Idle(Some(t)) => format!("Last synced at {t}."),
@@ -857,6 +891,44 @@ mod tests {
         app.sync_use_code(&ctx);
         assert!(app.sync.notice.contains("Type or paste"));
         assert_eq!(app.sync.state.token, old);
+        server.stop();
+    }
+
+    #[test]
+    fn the_diary_is_named_when_set_up_and_can_be_renamed() {
+        let server = start_server("named-server");
+        let (mut app, _) = desktop("named-desktop");
+        // Set up from the Settings screen: server address and a name typed in.
+        app.sync.server_text = server.url();
+        app.sync.name_text = "  Dave's   Diary ".into();
+        let ctx = egui::Context::default();
+        app.sync_set_up(&ctx);
+        settle(&mut app);
+        assert!(matches!(app.sync.status, Status::Idle(_)), "{:?}", app.sync.status);
+        assert_eq!(app.sync.state.name, "Dave's Diary");
+        assert!(app.sync_pairing_text().starts_with("Diary: Dave's Diary\nServer: "), "{}", app.sync_pairing_text());
+
+        // A phone joining sees the name straight away, and again after its first sync.
+        let token = app.sync.state.token.clone();
+        let keyring = http(&server.url(), &core_sync::keyring_request(&token)).unwrap();
+        assert_eq!(core_sync::name_from_response(&keyring), "Dave's Diary");
+        let ring = app.vault.as_ref().unwrap().keyring();
+        let mut phone = cs::join(&temp("named-phone").join("entries.json"), &ring, PASSWORD).unwrap();
+        let mut phone_state = SyncState { server: server.url(), token, ..Default::default() };
+        phone_sync(&mut phone, &mut phone_state);
+        assert_eq!(phone_state.name, "Dave's Diary");
+
+        // Renamed on the PC: shown as updating, then confirmed, and the phone hears of it.
+        app.sync.name_text = "Dave's Work Diary".into();
+        app.sync_rename(&ctx);
+        settle(&mut app);
+        assert_eq!((app.sync.state.name.as_str(), app.sync.state.pending_name.clone()), ("Dave's Work Diary", None));
+        phone_sync(&mut phone, &mut phone_state);
+        assert_eq!(phone_state.name, "Dave's Work Diary");
+        // An empty box does nothing; a blank name at set-up falls back to a default.
+        app.sync.name_text = "  ".into();
+        app.sync_rename(&ctx);
+        assert!(app.sync.notice.contains("Type a name"));
         server.stop();
     }
 
