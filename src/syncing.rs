@@ -54,6 +54,12 @@ pub(crate) struct Runtime {
     pub server_text: String,
     pub notice: String,
     pub show_code: bool,
+    /// "Change code" was clicked once and is waiting for a second click to confirm.
+    pub confirm_change: bool,
+    /// The code typed in "Use a new code".
+    pub new_code_text: String,
+    /// What the state was before "Use a new code", to go back to if the new one is refused.
+    previous: Option<SyncState>,
 }
 
 impl Default for Runtime {
@@ -72,6 +78,9 @@ impl Default for Runtime {
             server_text: String::new(),
             notice: String::new(),
             show_code: false,
+            confirm_change: false,
+            new_code_text: String::new(),
+            previous: None,
         }
     }
 }
@@ -295,6 +304,11 @@ impl DiaryApp {
     pub(crate) fn sync_finish(&mut self, outcome: Outcome) {
         let Outcome { result, state, data } = outcome;
         let id = self.diary_id();
+        // A code typed in by the person that the server refused (wrong, or for another diary): go back to the old one.
+        let (state, result) = match (self.sync.previous.take(), &result) {
+            (Some(before), Err(e)) if e.contains("did not accept") || e.contains("different diary") => (before, result),
+            (_, _) => (state, result),
+        };
         if let Some(vault) = self.vault.as_ref() {
             core_sync::save_state(&self.sync.path, &id, vault, &state).ok();
         }
@@ -338,7 +352,10 @@ impl DiaryApp {
             }
             (Ok(report), None) => {
                 self.sync.status = Status::Idle(Some(Local::now().format("%H:%M").to_string()));
-                self.sync.notice = if copies > 0 {
+                self.sync.notice = if report.code_changed {
+                    self.sync.show_code = true;
+                    "The sync code was changed and the old one no longer works. Enter the new code (shown above) on your other devices: use \"Copy details for another device\" here, and \"Use a new code\" there.".to_string()
+                } else if copies > 0 {
                     format!("{copies} {} edited on two devices at once: the other version was kept as a separate entry, with “conflicting version” in its title.", if copies == 1 { "entry was" } else { "entries were" })
                 } else if report.pulled > 0 || report.pushed > 0 {
                     format!("Synced: {} received, {} sent.", report.pulled, report.pushed)
@@ -364,6 +381,40 @@ impl DiaryApp {
         self.sync.state = SyncState { server, token: core_sync::new_token(), ..SyncState::default() };
         self.sync.notice.clear();
         self.sync_start(ctx, true);
+    }
+
+    /// Choose a new sync code. The next sync swaps it on the server; until the server confirms, the old code stays
+    /// in use, so nothing can go wrong if the connection drops.
+    pub(crate) fn sync_change_code(&mut self, ctx: &egui::Context) {
+        self.sync.confirm_change = false;
+        self.sync.state.begin_code_change();
+        let id = self.diary_id();
+        if let Some(vault) = self.vault.as_ref() {
+            core_sync::save_state(&self.sync.path, &id, vault, &self.sync.state).ok();
+        }
+        self.sync.notice.clear();
+        self.sync.retry_at = None;
+        self.sync_start(ctx, false);
+    }
+
+    /// Use a sync code that was made on another device.
+    pub(crate) fn sync_use_code(&mut self, ctx: &egui::Context) {
+        let code = self.sync.new_code_text.trim().to_string();
+        if code.is_empty() {
+            self.sync.notice = "Type or paste the new sync code first.".into();
+            return;
+        }
+        self.sync.previous = Some(self.sync.state.clone());
+        self.sync.state.token = code;
+        self.sync.state.next_token.clear();
+        self.sync.new_code_text.clear();
+        let id = self.diary_id();
+        if let Some(vault) = self.vault.as_ref() {
+            core_sync::save_state(&self.sync.path, &id, vault, &self.sync.state).ok();
+        }
+        self.sync.notice.clear();
+        self.sync.retry_at = None;
+        self.sync_start(ctx, false);
     }
 
     /// Stop syncing on this PC. The diary and the server's copy are left as they are.
@@ -447,6 +498,24 @@ impl DiaryApp {
                     ui.label(RichText::new(&self.sync.state.token).monospace().size(13.0).color(p.muted));
                     ui.add_space(8.0);
                 }
+                crate::settings::row(ui, p, "Change sync code", "Makes a new code and stops the old one working at once.", false, |ui| {
+                    if self.sync.confirm_change {
+                        if kit::button(ui, Look::Ghost, None, "Cancel", None).clicked() {
+                            self.sync.confirm_change = false;
+                        }
+                        if kit::button(ui, Look::Primary, None, "Yes, change it", None).clicked() && !running {
+                            self.sync_change_code(&ctx);
+                        }
+                    } else if kit::button(ui, Look::Ghost, None, "Change…", None).clicked() {
+                        self.sync.confirm_change = true;
+                    }
+                });
+                crate::settings::row(ui, p, "Use a new code", "If the code was changed on another device, enter the new one.", false, |ui| {
+                    if kit::button(ui, Look::Ghost, None, "Use", None).clicked() && !running {
+                        self.sync_use_code(&ctx);
+                    }
+                    ui.add(egui::TextEdit::singleline(&mut self.sync.new_code_text).desired_width(190.0).hint_text("new sync code").password(true));
+                });
                 crate::settings::row(ui, p, "Turn off sync", "Stops syncing on this PC. Nothing is deleted.", true, |ui| {
                     if kit::button(ui, Look::Ghost, None, "Turn off", None).clicked() {
                         self.sync_turn_off();
@@ -708,6 +777,86 @@ mod tests {
         assert_eq!((again.pulled, again.pushed), (0, 0), "{again:?}");
         sync_now(&mut app, false);
         println!("OK");
+        server.stop();
+    }
+
+    #[test]
+    fn changing_the_sync_code_on_the_pc_and_entering_it_on_the_phone() {
+        let server = start_server("code-server");
+        let (mut app, _) = desktop("code-desktop");
+        let old = cs::new_token();
+        app.sync.state = SyncState { server: server.url(), token: old.clone(), ..Default::default() };
+        sync_now(&mut app, true);
+        let ring = app.vault.as_ref().unwrap().keyring();
+        let mut phone = cs::join(&temp("code-phone").join("entries.json"), &ring, PASSWORD).unwrap();
+        let mut phone_state = SyncState { server: server.url(), token: old.clone(), ..Default::default() };
+        phone_sync(&mut phone, &mut phone_state);
+        assert_eq!(phone_entries(&phone).len(), 2);
+
+        // The PC changes the code: it needs a confirming click first, and then the old code stops working.
+        app.sync.confirm_change = true;
+        let ctx = egui::Context::default();
+        app.sync_change_code(&ctx);
+        settle(&mut app);
+        assert!(matches!(app.sync.status, Status::Idle(_)), "{:?}", app.sync.status);
+        let new = app.sync.state.token.clone();
+        assert_ne!(new, old);
+        assert!(!app.sync.confirm_change && !app.sync.state.changing_code());
+        assert!(app.sync.notice.contains("sync code was changed"), "{}", app.sync.notice);
+        assert!(app.sync.show_code, "the new code is shown so it can be copied");
+
+        // The phone, still on the old code, is refused with a message that says what to do.
+        let mut machine = Sync::new(std::mem::take(&mut phone_state));
+        let refused = loop {
+            match machine.poll(&mut phone, None) {
+                Err(e) => break e,
+                Ok(Poll::Done(_)) => panic!("the old code must not work"),
+                Ok(Poll::Request(req)) => {
+                    // Feed the reply back in, as the real client would.
+                    let reply = http(&machine.state().server.clone(), &req).unwrap();
+                    match machine.poll(&mut phone, Some(reply)) {
+                        Err(e) => break e,
+                        Ok(_) => continue,
+                    }
+                }
+            }
+        };
+        assert!(refused.contains("did not accept"), "{refused}");
+        // With the new code it carries on, and the diaries agree.
+        phone_state = SyncState { server: server.url(), token: new.clone(), ..Default::default() };
+        phone_sync(&mut phone, &mut phone_state);
+        let id = phone_id(&phone, "coffee");
+        phone.save_entry(Some(id), "Morning", "after the change", None).unwrap();
+        phone_sync(&mut phone, &mut phone_state);
+        sync_now(&mut app, false);
+        assert!(app.data.entries.iter().any(|e| e.text.contains("after the change")));
+        server.stop();
+    }
+
+    #[test]
+    fn a_new_code_the_server_refuses_is_put_back() {
+        let server = start_server("badcode-server");
+        let (mut app, _) = desktop("badcode-desktop");
+        let old = cs::new_token();
+        app.sync.state = SyncState { server: server.url(), token: old.clone(), ..Default::default() };
+        sync_now(&mut app, true);
+
+        // Someone types a code the server has never heard of.
+        app.sync.new_code_text = "x".repeat(43);
+        let ctx = egui::Context::default();
+        app.sync_use_code(&ctx);
+        settle(&mut app);
+        match &app.sync.status {
+            Status::Failed(e) => assert!(e.contains("did not accept"), "{e}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(app.sync.state.token, old, "the old, working code is back");
+        sync_now(&mut app, false);
+        // An empty box does nothing.
+        app.sync.new_code_text = "  ".into();
+        app.sync_use_code(&ctx);
+        assert!(app.sync.notice.contains("Type or paste"));
+        assert_eq!(app.sync.state.token, old);
         server.stop();
     }
 
