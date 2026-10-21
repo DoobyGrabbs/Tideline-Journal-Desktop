@@ -54,6 +54,7 @@ pub(crate) struct Runtime {
     pub server_text: String,
     pub notice: String,
     pub show_code: bool,
+    pub show_qr: bool,
     /// "Change code" was clicked once and is waiting for a second click to confirm.
     pub confirm_change: bool,
     /// The code typed in "Use a new code".
@@ -80,6 +81,7 @@ impl Default for Runtime {
             server_text: String::new(),
             notice: String::new(),
             show_code: false,
+            show_qr: false,
             confirm_change: false,
             new_code_text: String::new(),
             name_text: String::new(),
@@ -451,6 +453,7 @@ impl DiaryApp {
         self.sync.status = Status::Off;
         self.sync.notice = "Sync is off on this PC.".into();
         self.sync.show_code = false;
+        self.sync.show_qr = false;
     }
 
     /// A short line for the status area, empty when there's nothing worth saying.
@@ -521,6 +524,18 @@ impl DiaryApp {
                         self.sync.notice = "Copied. On the other device, enter the server address and sync code, then your journal password.".into();
                     }
                 });
+                crate::settings::row(ui, p, "QR code", "Scan it with the phone's Join screen. It contains the sync code, so show it only when you need it.", false, |ui| {
+                    let label = if self.sync.show_qr { "Hide" } else { "Show QR code" };
+                    if kit::button(ui, Look::Ghost, None, label, None).clicked() {
+                        self.sync.show_qr = !self.sync.show_qr;
+                    }
+                });
+                if self.sync.show_qr {
+                    ui.add_space(6.0);
+                    let text = tideline_core::pairing::uri(&self.sync.state.server, &self.sync.state.token, &self.sync.state.name);
+                    ui.vertical_centered(|ui| paint_qr(ui, &text, 220.0));
+                    ui.add_space(8.0);
+                }
                 crate::settings::row(ui, p, "Sync code", "A secret that lets a device use your journal on the server.", false, |ui| {
                     let label = if self.sync.show_code { "Hide" } else { "Show" };
                     if kit::button(ui, Look::Ghost, None, label, None).clicked() {
@@ -938,5 +953,26 @@ mod tests {
         assert_eq!(clean_server("  http://host:1/ "), "http://host:1");
         assert_eq!(clean_server("https://sync.example.com"), "https://sync.example.com");
         assert_eq!(clean_server("   "), "");
+    }
+}
+
+/// Draws `text` as a QR code `size` points wide: dark squares on white, with the blank border scanners need.
+fn paint_qr(ui: &mut egui::Ui, text: &str, size: f32) {
+    let Ok(code) = qrcode::QrCode::new(text.as_bytes()) else {
+        ui.label("The details are too long to show as a QR code.");
+        return;
+    };
+    let modules = code.width();
+    let border = 4usize;
+    let cell = size / (modules + 2 * border) as f32;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 6.0, Color32::WHITE);
+    for (i, colour) in code.to_colors().into_iter().enumerate() {
+        if colour == qrcode::Color::Dark {
+            let (x, y) = ((i % modules) as f32, (i / modules) as f32);
+            let top_left = rect.min + egui::vec2((x + border as f32) * cell, (y + border as f32) * cell);
+            painter.rect_filled(egui::Rect::from_min_size(top_left, egui::vec2(cell + 0.5, cell + 0.5)), 0.0, Color32::BLACK);
+        }
     }
 }
