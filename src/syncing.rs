@@ -55,6 +55,10 @@ pub(crate) struct Runtime {
     pub notice: String,
     pub show_code: bool,
     pub show_qr: bool,
+    /// The Rename diary and Sync code windows are open; "Turn off" is waiting for a second click.
+    pub rename_window: bool,
+    pub code_window: bool,
+    pub confirm_off: bool,
     /// "Change code" was clicked once and is waiting for a second click to confirm.
     pub confirm_change: bool,
     /// The code typed in "Use a new code".
@@ -82,6 +86,9 @@ impl Default for Runtime {
             notice: String::new(),
             show_code: false,
             show_qr: false,
+            rename_window: false,
+            code_window: false,
+            confirm_off: false,
             confirm_change: false,
             new_code_text: String::new(),
             name_text: String::new(),
@@ -359,7 +366,8 @@ impl DiaryApp {
                 self.sync.status = Status::Idle(Some(Local::now().format("%H:%M").to_string()));
                 self.sync.notice = if report.code_changed {
                     self.sync.show_code = true;
-                    "The sync code was changed and the old one no longer works. Enter the new code (shown above) on your other devices: use \"Copy details for another device\" here, and \"Use a new code\" there.".to_string()
+                    self.sync.code_window = true;
+                    "The sync code was changed and the old one no longer works. Enter the new code on your other devices: copy it from Sync code here, and enter it under Sync code on the other device.".to_string()
                 } else if copies > 0 {
                     format!("{copies} {} edited on two devices at once: the other version was kept as a separate entry, with “conflicting version” in its title.", if copies == 1 { "entry was" } else { "entries were" })
                 } else if report.pulled > 0 || report.pushed > 0 {
@@ -454,6 +462,9 @@ impl DiaryApp {
         self.sync.notice = "Sync is off on this PC.".into();
         self.sync.show_code = false;
         self.sync.show_qr = false;
+        self.sync.rename_window = false;
+        self.sync.code_window = false;
+        self.sync.confirm_off = false;
     }
 
     /// A short line for the status area, empty when there's nothing worth saying.
@@ -471,6 +482,110 @@ impl DiaryApp {
     pub(crate) fn sync_pairing_text(&self) -> String {
         let diary = if self.sync.state.name.is_empty() { String::new() } else { format!("Diary: {}\n", self.sync.state.name) };
         format!("{diary}Server: {}\nSync code: {}", self.sync.state.server, self.sync.state.token)
+    }
+
+    /// The two small windows opened from Settings → Sync: Rename diary and Sync code.
+    pub(crate) fn sync_windows(&mut self, ctx: &egui::Context) {
+        if !self.sync.configured() {
+            self.sync.rename_window = false;
+            self.sync.code_window = false;
+            return;
+        }
+        let p = palette(ctx);
+        let dark = ctx.theme() == egui::Theme::Dark;
+        let running = self.sync.status == Status::Running;
+
+        if self.sync.rename_window {
+            let (mut close, mut apply) = (false, false);
+            egui::Window::new("Rename diary")
+                .title_bar(false)
+                .frame(popup_frame(&p, dark))
+                .resizable(false)
+                .pivot(Align2::CENTER_CENTER)
+                .default_pos(ctx.content_rect().center())
+                .show(ctx, |ui| {
+                    if popup_header(ui, &p, "Rename diary") {
+                        close = true;
+                    }
+                    egui::Frame::new().inner_margin(14).show(ui, |ui| {
+                        ui.set_width(380.0);
+                        ui.add(egui::TextEdit::singleline(&mut self.sync.name_text).desired_width(f32::INFINITY).hint_text("Diary name"));
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            apply = ui.add_enabled(!running && !self.sync.name_text.trim().is_empty(), egui::Button::new("Rename")).clicked();
+                            if ui.button("Cancel").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+                });
+            if apply {
+                self.sync_rename(ctx);
+                close = true;
+            }
+            if close {
+                self.sync.rename_window = false;
+            }
+        }
+
+        if self.sync.code_window {
+            let (mut close, mut change, mut use_code) = (false, false, false);
+            let code = self.sync.state.token.clone();
+            egui::Window::new("Sync code")
+                .title_bar(false)
+                .frame(popup_frame(&p, dark))
+                .resizable(false)
+                .pivot(Align2::CENTER_CENTER)
+                .default_pos(ctx.content_rect().center())
+                .show(ctx, |ui| {
+                    if popup_header(ui, &p, "Sync code") {
+                        close = true;
+                    }
+                    egui::Frame::new().inner_margin(14).show(ui, |ui| {
+                        ui.set_width(480.0);
+                        ui.add(egui::Label::new(RichText::new("A secret that lets a device use your journal on the server. Anyone with it can add to your synced data but cannot read it, so keep it private.").color(p.muted)).wrap());
+                        ui.add_space(8.0);
+                        if self.sync.show_code {
+                            ui.add(egui::Label::new(RichText::new(&code).monospace().size(13.0).color(p.ink)).selectable(true));
+                        }
+                        if ui.button(if self.sync.show_code { "Hide the code" } else { "Show the code" }).clicked() {
+                            self.sync.show_code = !self.sync.show_code;
+                        }
+                        ui.add_space(14.0);
+                        ui.label(RichText::new("Make a new code").size(16.0).strong().color(p.title));
+                        ui.add(egui::Label::new(RichText::new("Stops the old code working at once, on every device. You then enter the new code on your other devices.").color(p.muted)).wrap());
+                        ui.add_space(6.0);
+                        let label = if self.sync.confirm_change { "Click again: the old code stops working" } else { "Make a new code…" };
+                        if ui.add_enabled(!running, egui::Button::new(label)).clicked() {
+                            if self.sync.confirm_change {
+                                change = true;
+                            } else {
+                                self.sync.confirm_change = true;
+                            }
+                        }
+                        ui.add_space(14.0);
+                        ui.label(RichText::new("Changed on another device?").size(16.0).strong().color(p.title));
+                        ui.add(egui::Label::new(RichText::new("Enter the new code here.").color(p.muted)).wrap());
+                        ui.add_space(6.0);
+                        ui.add(egui::TextEdit::singleline(&mut self.sync.new_code_text).desired_width(f32::INFINITY).hint_text("new sync code").password(true));
+                        ui.add_space(6.0);
+                        use_code = ui.add_enabled(!running && !self.sync.new_code_text.trim().is_empty(), egui::Button::new("Use this code")).clicked();
+                    });
+                });
+            if change {
+                self.sync_change_code(ctx);
+            }
+            if use_code {
+                self.sync_use_code(ctx);
+                close = true;
+            }
+            if close {
+                self.sync.code_window = false;
+                self.sync.confirm_change = false;
+                self.sync.show_code = false;
+                self.sync.new_code_text.clear();
+            }
+        }
     }
     /// The Sync card in Settings. Rows show one line each, so anything longer goes in wrapped text beneath.
     pub(crate) fn sync_card(&mut self, ui: &mut egui::Ui, p: &Palette, width: f32) {
@@ -498,76 +613,64 @@ impl DiaryApp {
                     ui.add(egui::TextEdit::singleline(&mut self.sync.server_text).desired_width(210.0).hint_text("192.168.1.20:8787"));
                 });
             } else {
-                let shown = if let Some(pending) = &self.sync.state.pending_name { format!("{pending} (updating…)") } else if self.sync.state.name.is_empty() { "No name yet. Give it one so you can tell what you are connected to.".to_string() } else { self.sync.state.name.clone() };
-                crate::settings::row(ui, p, "Diary", &shown, false, |ui| {
-                    if kit::button(ui, Look::Ghost, None, "Rename", None).clicked() && !running {
-                        self.sync_rename(&ctx);
-                    }
-                    ui.add(egui::TextEdit::singleline(&mut self.sync.name_text).desired_width(190.0).hint_text("new name"));
-                });
+                // How it is going: the diary's name, the state of syncing, and the one button most people need.
+                let title = if let Some(pending) = &self.sync.state.pending_name { format!("{pending} (updating…)") } else if self.sync.state.name.is_empty() { "Your synced diary".to_string() } else { self.sync.state.name.clone() };
                 let description = match &self.sync.status {
                     Status::Running => "Syncing now…".to_string(),
-                    Status::Idle(Some(t)) => format!("Last synced at {t}."),
+                    Status::Idle(Some(t)) => format!("Synced at {t}."),
                     Status::Idle(None) => "Not synced yet.".to_string(),
                     Status::Failed(_) => "Paused. It will try again soon.".to_string(),
                     Status::Off => String::new(),
                 };
-                crate::settings::row(ui, p, "Sync now", &description, false, |ui| {
-                    if kit::button(ui, Look::Ghost, None, "Sync now", None).clicked() && !running {
+                crate::settings::row(ui, p, &title, &description, false, |ui| {
+                    if kit::button(ui, Look::Primary, None, if running { "Syncing…" } else { "Sync now" }, None).clicked() && !running {
                         self.sync.retry_at = None;
                         self.sync_start(&ctx, false);
                     }
                 });
-                crate::settings::row(ui, p, "Server", &self.sync.state.server.clone(), false, |ui| {
-                    if kit::button(ui, Look::Ghost, None, "Copy details for another device", None).clicked() {
-                        ctx.copy_text(self.sync_pairing_text());
-                        self.sync.notice = "Copied. On the other device, enter the server address and sync code, then your journal password.".into();
-                    }
-                });
-                crate::settings::row(ui, p, "QR code", "Scan it with the phone's Join screen. It contains the sync code, so show it only when you need it.", false, |ui| {
-                    let label = if self.sync.show_qr { "Hide" } else { "Show QR code" };
+                // Adding another device: the QR code for the phone to scan, or the details to type.
+                crate::settings::row(ui, p, "Add another device", "Scan the QR code on your phone, or copy the details to type there.", false, |ui| {
+                    let label = if self.sync.show_qr { "Hide QR code" } else { "Show QR code" };
                     if kit::button(ui, Look::Ghost, None, label, None).clicked() {
                         self.sync.show_qr = !self.sync.show_qr;
+                    }
+                    if kit::button(ui, Look::Ghost, None, "Copy details", None).clicked() {
+                        ctx.copy_text(self.sync_pairing_text());
+                        self.sync.notice = "Copied. On the other device, enter the server address and sync code, then your journal password.".into();
                     }
                 });
                 if self.sync.show_qr {
                     ui.add_space(6.0);
                     let text = tideline_core::pairing::uri(&self.sync.state.server, &self.sync.state.token, &self.sync.state.name);
                     ui.vertical_centered(|ui| paint_qr(ui, &text, 220.0));
-                    ui.add_space(8.0);
-                }
-                crate::settings::row(ui, p, "Sync code", "A secret that lets a device use your journal on the server.", false, |ui| {
-                    let label = if self.sync.show_code { "Hide" } else { "Show" };
-                    if kit::button(ui, Look::Ghost, None, label, None).clicked() {
-                        self.sync.show_code = !self.sync.show_code;
-                    }
-                });
-                if self.sync.show_code {
                     ui.add_space(4.0);
-                    ui.label(RichText::new(&self.sync.state.token).monospace().size(13.0).color(p.muted));
-                    ui.add_space(8.0);
+                    ui.vertical_centered(|ui| ui.label(RichText::new("It contains the sync code, so show it only when you need it. It never contains your password.").size(13.0).color(p.faint)));
+                    ui.add_space(12.0);
                 }
-                crate::settings::row(ui, p, "Change sync code", "Makes a new code and stops the old one working at once.", false, |ui| {
-                    if self.sync.confirm_change {
-                        if kit::button(ui, Look::Ghost, None, "Cancel", None).clicked() {
-                            self.sync.confirm_change = false;
-                        }
-                        if kit::button(ui, Look::Primary, None, "Yes, change it", None).clicked() && !running {
-                            self.sync_change_code(&ctx);
-                        }
-                    } else if kit::button(ui, Look::Ghost, None, "Change…", None).clicked() {
-                        self.sync.confirm_change = true;
+                // The things you rarely need.
+                let name_now = if self.sync.state.name.is_empty() { "No name yet.".to_string() } else { self.sync.state.name.clone() };
+                crate::settings::row(ui, p, "Rename diary", &name_now, false, |ui| {
+                    if kit::button(ui, Look::Ghost, None, "Rename…", None).clicked() {
+                        self.sync.rename_window = true;
+                        self.sync.name_text = self.sync.state.name.clone();
                     }
                 });
-                crate::settings::row(ui, p, "Use a new code", "If the code was changed on another device, enter the new one.", false, |ui| {
-                    if kit::button(ui, Look::Ghost, None, "Use", None).clicked() && !running {
-                        self.sync_use_code(&ctx);
+                crate::settings::row(ui, p, "Sync code", "Make a new one, or use one made on another device.", false, |ui| {
+                    if kit::button(ui, Look::Ghost, None, "Manage…", None).clicked() {
+                        self.sync.code_window = true;
                     }
-                    ui.add(egui::TextEdit::singleline(&mut self.sync.new_code_text).desired_width(190.0).hint_text("new sync code").password(true));
                 });
+                crate::settings::row(ui, p, "Server", &self.sync.state.server.clone(), false, |_| {});
                 crate::settings::row(ui, p, "Turn off sync", "Stops syncing on this PC. Nothing is deleted.", true, |ui| {
-                    if kit::button(ui, Look::Ghost, None, "Turn off", None).clicked() {
-                        self.sync_turn_off();
+                    if self.sync.confirm_off {
+                        if kit::button(ui, Look::Ghost, None, "Cancel", None).clicked() {
+                            self.sync.confirm_off = false;
+                        }
+                        if kit::button(ui, Look::Primary, None, "Yes, turn off", None).clicked() {
+                            self.sync_turn_off();
+                        }
+                    } else if kit::button(ui, Look::Ghost, None, "Turn off…", None).clicked() {
+                        self.sync.confirm_off = true;
                     }
                 });
             }

@@ -2718,6 +2718,7 @@ impl eframe::App for DiaryApp {
         self.ai_task_window(&ctx);
         self.templates_window(&ctx);
         self.recovery_window(&ctx);
+        self.sync_windows(&ctx);
         self.trash_window(&ctx);
         self.backups_window(&ctx);
         self.lightbox_window(&ctx);
