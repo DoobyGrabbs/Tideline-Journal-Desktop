@@ -682,7 +682,8 @@ td:first-child { white-space: nowrap; font-weight: 600; width: 34%; }
   <h2>Keeping it safe</h2>
   <ul>
     <li>Everything on the server is encrypted before it leaves your device. Even so, run the server only on a network you trust, or behind a VPN, because the connection itself is plain HTTP for now.</li>
-    <li>The server’s database holds everything that has ever been synced. Back it up (copy the <code>tideline-server.db</code> file while the server is stopped) just as you would your journal.</li>
+    <li>The server backs its own database up when it starts and then daily (if anything changed), into a <code>backups</code> folder beside <code>tideline-server.db</code>, keeping the newest 14. Copy that folder to another drive now and then: a backup beside the database does not help if the whole drive is lost. The copies are encrypted, so they are safe to keep anywhere.</li>
+    <li>To check on it, run <code>tideline-server status</code>. It lists what the server holds and when the last backup was made, and warns if backups have stopped. To go back to a backup, stop the server and run <code>tideline-server restore</code> followed by the backup file; the database it replaces is kept aside, and your devices catch up on their next sync. Even without any backup, your PC and phone each hold the full journal, so a lost server means setting up sync again rather than losing entries.</li>
     <li>Your journal password and your sync code are separate. The password protects what is <em>in</em> the journal; the sync code only controls who can use your diary on the server.</li>
   </ul>
 
