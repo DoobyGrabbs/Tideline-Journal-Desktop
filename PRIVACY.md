@@ -60,6 +60,7 @@ You run the server on your own computer. The apps encrypt every record and pictu
 - **Files you open from an entry** are copied to the data folder as plain files and deleted when the diary locks or the app next starts.
 - **Screenshots are allowed.** Neither app blocks them yet.
 - **A few settings are stored unencrypted**, because they are needed before you unlock (for example where the data folder is, the accent colour and the window mode). They contain nothing from your diary.
+- **The phone keeps your diary's name as plain text** (the same name the sync server holds), so the Saved diaries list can say which diary is which. It is only the name you gave it.
 - **File sizes and dates are visible** on disk. Anyone can see that a diary file exists, how big it is and when it changed.
 - **The copy of the diary on your PC is only as safe as your PC.** Malware running as you could read it while it is unlocked, record your keystrokes or copy your files.
 - **Pictures** taken or added on the phone are re-saved by the app, which removes the details cameras embed, such as location.
