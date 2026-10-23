@@ -694,9 +694,25 @@ td:first-child { white-space: nowrap; font-weight: 600; width: 34%; }
   <ul>
     <li>Everything on the server is encrypted before it leaves your device. Even so, run the server only on a network you trust, or behind a VPN, because the connection itself is plain HTTP for now.</li>
     <li>The server backs its own database up when it starts and then daily (if anything changed), into a <code>backups</code> folder beside <code>tideline-server.db</code>, keeping the newest 14. Copy that folder to another drive now and then: a backup beside the database does not help if the whole drive is lost. The copies are encrypted, so they are safe to keep anywhere.</li>
-    <li>To check on it, run <code>tideline-server status</code>. It lists what the server holds and when the last backup was made, and warns if backups have stopped. To go back to a backup, stop the server and run <code>tideline-server restore</code> followed by the backup file; the database it replaces is kept aside, and your devices catch up on their next sync. Even without any backup, your PC and phone each hold the full journal, so a lost server means setting up sync again rather than losing entries.</li>
+    <li>To check on it, run <code>tideline-server status</code>. It lists what the server holds and when the last backup was made, and warns if backups have stopped. To go back to a backup, stop the server and run <code>tideline-server restore</code> followed by the backup file; the database it replaces is kept aside, and your devices catch up on their next sync. Even without any backup, your PC and phone each hold the full journal (see “If the server is lost” below).</li>
     <li>Your journal password and your sync code are separate. The password protects what is <em>in</em> the journal; the sync code only controls who can use your diary on the server.</li>
   </ul>
+
+  <h2>If the server is lost</h2>
+  <p>Your PC and phone each keep a full copy of the journal, so losing the server never loses entries. It only means setting the server up again. These steps have been tested.</p>
+  <h3>If you have a server backup</h3>
+  <ol class="steps">
+    <li>Stop the server (press Enter in its window) and start a new, empty folder for it if needed.</li>
+    <li>Run <code>tideline-server restore</code> followed by a file from the <code>backups</code> folder, for example <code>tideline-server restore backups\tideline-server-2026-10-21-090000.db</code>. Use this command rather than copying the file yourself: it also marks the database as restored.</li>
+    <li>Start the server again. Each device notices the server has gone back in time and, on its next sync, sends it whatever it is missing. Entries written after the backup are not lost, even if they were only on one device.</li>
+  </ol>
+  <h3>If you have no backup</h3>
+  <ol class="steps">
+    <li>Start a new, empty server.</li>
+    <li>On the PC, open <span class="menu">Settings → Sync</span>, turn sync off, and set it up again with the new server’s address. This makes a new sync code and sends the whole journal to the server.</li>
+    <li>On the phone, open <span class="menu">Settings → Sync → Sync code</span> and enter or scan the PC’s new code under <strong>Changed on another device?</strong>. Anything you wrote on the phone while the server was gone is sent, and the PC’s entries arrive.</li>
+  </ol>
+  <p>Until you do this, each device shows <strong>Paused</strong> and says the server did not accept its sync code. Your journal on each device is not affected.</p>
 
   <h2>If something goes wrong</h2>
   <table>
