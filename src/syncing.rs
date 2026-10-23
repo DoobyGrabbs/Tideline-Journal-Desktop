@@ -59,6 +59,8 @@ pub(crate) struct Runtime {
     pub rename_window: bool,
     pub code_window: bool,
     pub confirm_off: bool,
+    /// "Join a synced diary" in Settings was clicked once and is waiting for a second click.
+    pub confirm_join: bool,
     /// "Change code" was clicked once and is waiting for a second click to confirm.
     pub confirm_change: bool,
     /// The code typed in "Use a new code".
@@ -89,6 +91,7 @@ impl Default for Runtime {
             rename_window: false,
             code_window: false,
             confirm_off: false,
+            confirm_join: false,
             confirm_change: false,
             new_code_text: String::new(),
             name_text: String::new(),
@@ -606,11 +609,24 @@ impl DiaryApp {
                 crate::settings::row(ui, p, "Diary name", "So you can tell what you are connected to, for example Dave's Diary.", false, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.sync.name_text).desired_width(250.0).hint_text("My diary"));
                 });
-                crate::settings::row(ui, p, "Server address", "For example 192.168.1.20:8787", true, |ui| {
+                crate::settings::row(ui, p, "Server address", "For example 192.168.1.20:8787", false, |ui| {
                     if kit::button(ui, Look::Primary, None, if running { "Setting up…" } else { "Set up sync" }, None).clicked() && !running {
                         self.sync_set_up(&ctx);
                     }
                     ui.add(egui::TextEdit::singleline(&mut self.sync.server_text).desired_width(210.0).hint_text("192.168.1.20:8787"));
+                });
+                crate::settings::row(ui, p, "Join a synced diary", "Use a diary that is already on the server instead of this one. This diary is put aside, not deleted.", true, |ui| {
+                    if self.sync.confirm_join {
+                        if kit::button(ui, Look::Ghost, None, "Cancel", None).clicked() {
+                            self.sync.confirm_join = false;
+                        }
+                        if kit::button(ui, Look::Primary, None, "Yes, put this diary aside", None).clicked() {
+                            self.sync.confirm_join = false;
+                            self.join_from_settings();
+                        }
+                    } else if kit::button(ui, Look::Ghost, None, "Join…", None).clicked() {
+                        self.sync.confirm_join = true;
+                    }
                 });
             } else {
                 // How it is going: the diary's name, the state of syncing, and the one button most people need.
@@ -812,6 +828,40 @@ mod tests {
         let quiet = phone_sync(&mut phone, &mut phone_state);
         let quiet = if quiet.pushed > 0 || quiet.pulled > 0 { phone_sync(&mut phone, &mut phone_state) } else { quiet };
         assert_eq!((quiet.pulled, quiet.pushed), (0, 0), "{quiet:?}");
+        server.stop();
+    }
+
+    #[test]
+    fn a_second_pc_joins_the_synced_diary_with_the_server_the_code_and_the_password() {
+        let server = start_server("join-server");
+        let (mut a, _) = desktop("join-a");
+        a.sync.state = SyncState { server: server.url(), token: cs::new_token(), name: "Dave's Diary".into(), ..Default::default() };
+        sync_now(&mut a, true);
+        let token = a.sync.state.token.clone();
+        let path_b = temp("join-b").join("entries.json");
+
+        // A wrong password or a wrong code is refused, and leaves no diary behind.
+        assert!(crate::joining::join_diary(&path_b, &server.url(), &token, "not the password").is_err());
+        assert!(!path_b.exists());
+        assert!(crate::joining::join_diary(&path_b, &server.url(), "not-the-code", PASSWORD).is_err());
+        assert!(!path_b.exists());
+        assert!(crate::joining::join_diary(&path_b, "", &token, PASSWORD).is_err());
+
+        // The right details make an empty diary that knows the server, which then brings everything.
+        let (v, data) = crate::joining::join_diary(&path_b, &server.url(), &token, PASSWORD).unwrap();
+        let mut b = DiaryApp::new();
+        b.lock = None;
+        b.vault = Some(v);
+        b.data = data;
+        b.sync_unlocked(&path_b);
+        assert!(b.sync.configured());
+        assert_eq!(b.sync.state.name, "Dave's Diary");
+        assert!(b.data.entries.is_empty());
+        sync_now(&mut b, false);
+        assert_eq!(b.data.entries.len(), 2, "both entries arrived");
+
+        // Joining never replaces a diary that is already there.
+        assert!(crate::joining::join_diary(&path_b, &server.url(), &token, PASSWORD).is_err());
         server.stop();
     }
 

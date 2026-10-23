@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use location::data_path;
 
 mod icon;
+mod joining;
 mod kit;
 mod ai;
 mod export;
@@ -376,6 +377,8 @@ enum LockMode {
     Recover(vault::Envelope),
     /// Unencrypted diary from an earlier version: choose a password to encrypt it.
     Encrypt(Data),
+    /// Join a diary that is already synced from another device: server, sync code and the diary's password.
+    Join,
     /// The file exists but can't be used; never overwrite it.
     Broken(String),
 }
@@ -387,11 +390,14 @@ struct Lock {
     error: String,
     focus: bool,
     recovery_key: String,
+    /// For joining a synced diary: where the server is and the sync code.
+    server: String,
+    code: String,
 }
 
 impl Lock {
     fn new(mode: LockMode) -> Self {
-        Self { mode, password: String::new(), confirm: String::new(), error: String::new(), focus: true, recovery_key: String::new() }
+        Self { mode, password: String::new(), confirm: String::new(), error: String::new(), focus: true, recovery_key: String::new(), server: String::new(), code: String::new() }
     }
 }
 
@@ -661,6 +667,7 @@ clear_open_files(); // leftovers from opening attachments last time
                 save(&data, &v)?;
                 Ok((v, data))
             }),
+            LockMode::Join => joining::join_diary(&data_path(), &lock.server, &lock.code, &password),
             LockMode::Create => create_vault(&password, &lock.confirm, fresh_data()),
             LockMode::Encrypt(data) => create_vault(&password, &lock.confirm, data),
             LockMode::Broken(_) => return,
@@ -757,6 +764,11 @@ clear_open_files(); // leftovers from opening attachments last time
                     .to_string(),
                 "",
             ),
+            LockMode::Join => (
+                "Join a synced diary",
+                "Use a diary that is already synced from another device. Enter your sync server and its sync code (on the other device, choose Copy details), then the diary's password.".to_string(),
+                "Join",
+            ),
             LockMode::Broken(why) => (
                 "Can't open the diary file",
                 format!("{}\n\nThe file was left untouched: {why}.\nFix or move it, then restart the app.", data_path().display()),
@@ -765,10 +777,13 @@ clear_open_files(); // leftovers from opening attachments last time
         };
         let recovering = matches!(&lock.mode, LockMode::Recover(env) if env.has_recovery());
         let needs_confirm = recovering || matches!(lock.mode, LockMode::Create | LockMode::Encrypt(_));
+        let joining = matches!(lock.mode, LockMode::Join);
+        let can_join = matches!(lock.mode, LockMode::Create);
         let no_fields = matches!(lock.mode, LockMode::Broken(_)) || matches!(&lock.mode, LockMode::Recover(env) if !env.has_recovery());
         let in_recover = matches!(lock.mode, LockMode::Recover(_));
         let can_switch = matches!(lock.mode, LockMode::Unlock(_) | LockMode::Recover(_));
         let (mut submit, mut forgot, mut back, mut other) = (false, false, false, false);
+        let (mut go_join, mut leave_join) = (false, false);
 
         ui.vertical_centered(|ui| {
             ui.add_space(((ui.available_height() - 520.0) / 2.0).max(16.0));
@@ -793,6 +808,31 @@ clear_open_files(); // leftovers from opening attachments last time
                     ui.add_space(14.0);
 
                     if !no_fields {
+                        if joining {
+                            let r = ui.add(
+                                egui::TextEdit::singleline(&mut lock.server)
+                                    .hint_text("Server address, for example 192.168.1.20:8787")
+                                    .font(FontId::proportional(16.0))
+                                    .margin(egui::Margin::symmetric(12, 8))
+                                    .text_color(p.ink)
+                                    .desired_width(f32::INFINITY),
+                            );
+                            if lock.focus {
+                                r.request_focus();
+                                lock.focus = false;
+                            }
+                            ui.add_space(8.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut lock.code)
+                                    .hint_text("Sync code")
+                                    .password(true)
+                                    .font(FontId::proportional(16.0))
+                                    .margin(egui::Margin::symmetric(12, 8))
+                                    .text_color(p.ink)
+                                    .desired_width(f32::INFINITY),
+                            );
+                            ui.add_space(8.0);
+                        }
                         if recovering {
                             let r = ui.add(
                                 egui::TextEdit::singleline(&mut lock.recovery_key)
@@ -808,9 +848,9 @@ clear_open_files(); // leftovers from opening attachments last time
                             }
                             ui.add_space(8.0);
                         }
-                        let hint = if recovering { "New password" } else { "Password" };
+                        let hint = if recovering { "New password" } else if joining { "The diary's password" } else { "Password" };
                         let r = ui.add(password_field(&mut lock.password, hint, &p));
-                        if lock.focus && !recovering {
+                        if lock.focus && !recovering && !joining {
                             r.request_focus();
                             lock.focus = false;
                         }
@@ -830,6 +870,14 @@ clear_open_files(); // leftovers from opening attachments last time
                         ui.add_space(8.0);
                         ui.label(RichText::new(&lock.error).color(RED));
                     }
+                    if can_join || joining {
+                        ui.add_space(12.0);
+                        if joining {
+                            leave_join = ui.link("Back").clicked();
+                        } else {
+                            go_join = ui.link("Join a synced diary…").clicked();
+                        }
+                    }
                     if can_switch {
                         ui.add_space(12.0);
                         ui.horizontal_wrapped(|ui| {
@@ -844,7 +892,11 @@ clear_open_files(); // leftovers from opening attachments last time
                 });
         });
 
-        if forgot {
+        if go_join {
+            self.lock = Some(Lock::new(LockMode::Join));
+        } else if leave_join {
+            self.lock = Some(Lock::new(current_lock_mode()));
+        } else if forgot {
             if let LockMode::Unlock(env) = lock.mode.clone() {
                 self.lock = Some(Lock::new(LockMode::Recover(env)));
             }
@@ -3597,6 +3649,7 @@ mod tests {
         let mut app = app_with_entries();
         for mode in [
             LockMode::Create,
+            LockMode::Join,
             LockMode::Unlock(env_with.clone()),
             LockMode::Recover(env_with),
             LockMode::Recover(env_without),
