@@ -22,6 +22,7 @@ mod location;
 mod markdown;
 mod ollama;
 mod pinned;
+mod privacy;
 mod recovery;
 mod reports;
 mod search;
@@ -434,6 +435,7 @@ struct DiaryApp {
     show_password: bool,
     show_location: bool,
     show_shortcuts: bool,
+    show_privacy: bool,
     show_export: bool,
     export_scope: ExportScope,
     export_images: bool,
@@ -542,6 +544,7 @@ clear_open_files(); // leftovers from opening attachments last time
             show_password: false,
             show_location: false,
             show_shortcuts: false,
+            show_privacy: false,
             show_export: false,
             export_scope: ExportScope::Month,
             export_images: true,
@@ -733,6 +736,7 @@ clear_open_files(); // leftovers from opening attachments last time
         self.backup_restore_arm = None;
         self.last_trashed = None;
         self.show_shortcuts = false;
+        self.show_privacy = false;
         self.lock = Some(Lock::new(mode));
     }
 
@@ -2766,6 +2770,7 @@ impl eframe::App for DiaryApp {
         self.password_window(&ctx);
         self.location_window(&ctx);
         self.shortcuts_window(&ctx);
+        self.privacy_window(&ctx);
         self.ai_setup_window(&ctx);
         self.ai_task_window(&ctx);
         self.templates_window(&ctx);

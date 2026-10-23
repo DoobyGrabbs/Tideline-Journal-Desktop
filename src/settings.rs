@@ -272,9 +272,14 @@ impl DiaryApp {
                         self.save_user_guide();
                     }
                 });
-                row(ui, &p, "Keyboard shortcuts", "Every shortcut in one list.", true, |ui| {
+                row(ui, &p, "Keyboard shortcuts", "Every shortcut in one list.", false, |ui| {
                     if kit::button(ui, Look::Ghost, None, "View", None).clicked() {
                         self.show_shortcuts = true;
+                    }
+                });
+                row(ui, &p, "Privacy and security", "What is protected, and what leaves this PC.", true, |ui| {
+                    if kit::button(ui, Look::Ghost, None, "View", None).clicked() {
+                        self.show_privacy = true;
                     }
                 });
             });

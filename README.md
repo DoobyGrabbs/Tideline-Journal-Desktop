@@ -33,7 +33,7 @@ Write down your thoughts each day with rich formatting and pictures, tag them wi
 - **Multiple entries per day**, each with a time and a category. You can change an entry's date and time when you edit it.
 - **Categories** with their own colours. Add, rename, recolour and delete them from the Categories window. Renaming a category updates the entries that use it.
 
-**Privacy and data**
+**Privacy and data** (the full picture is in [PRIVACY.md](PRIVACY.md): what is protected, what leaves your devices, what the sync server can see, and the limits)
 - **Password protection.** The diary is encrypted with a password you choose, and the app asks for it every time it starts. **Lock** locks it immediately.
 - **Recovery key** (**Settings → Recovery key**): a long code, shown once, that can open the diary if you forget your password. On the unlock screen choose **Forgot your password?**, enter the key and pick a new password. You can make a new key (the old one then stops working) or remove it. You are offered one when you first create a diary.
 - **Recently deleted** (**Settings → Recently deleted**): deleting an entry moves it to a bin for 30 days, with an **Undo** straight away, **Restore**, **Delete for good** and **Empty the bin**. Pictures and attachments are kept while an entry is in the bin.
