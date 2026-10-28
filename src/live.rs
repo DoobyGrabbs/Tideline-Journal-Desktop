@@ -11,7 +11,7 @@
 
 use eframe::egui::{
     Color32, FontFamily, FontId, Stroke,
-    text::{LayoutJob, TextFormat},
+    text::{ByteIndex, LayoutJob, LayoutSection, TextFormat},
 };
 
 use crate::markdown::{IMAGE_SCHEME, bold_family};
@@ -308,7 +308,46 @@ pub fn layout_with_hidden(text: &str, reveal: Option<(usize, usize)>, show_all: 
     if text.is_empty() {
         job.append("", 0.0, plain);
     }
+    colour_tags(&mut job, text, st);
     (job, hidden)
+}
+
+/// Tags in the text: the paragraphs they mark get a soft tint, and the tags themselves the accent colour (see
+/// `tideline_core::tags`). The layout always holds exactly the characters of the text, so the character positions
+/// from the tag finder are positions in the layout too; its pieces are split where a tag or a tinted paragraph starts or ends.
+fn colour_tags(job: &mut LayoutJob, text: &str, st: &LiveStyle) {
+    let marks = tideline_core::tags::tag_marks(text);
+    if marks.is_empty() || job.text != text {
+        return;
+    }
+    // Character position -> byte position in the text.
+    let mut bytes: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+    bytes.push(text.len());
+    let at = |c: usize| bytes[c.min(bytes.len() - 1)];
+    let tints: Vec<(usize, usize)> = tideline_core::tags::tag_sections(text).iter().flat_map(|s| s.tinted.iter().map(|&(a, b)| (at(a), at(b)))).collect();
+    let tags: Vec<(usize, usize)> = marks.iter().map(|m| (at(m.start), at(m.end))).collect();
+    let mut cuts: Vec<usize> = tints.iter().chain(&tags).flat_map(|&(a, b)| [a, b]).collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let tint = st.accent.gamma_multiply(0.16);
+    let old = std::mem::take(&mut job.sections);
+    for section in old {
+        let (start, end) = (section.byte_range.start.0, section.byte_range.end.0);
+        let mut from = start;
+        let mut first = true;
+        for to in cuts.iter().copied().filter(|&c| c > start && c < end).chain([end]) {
+            let mut format = section.format.clone();
+            if tints.iter().any(|&(a, b)| from >= a && to <= b) && format.background == Color32::TRANSPARENT {
+                format.background = tint;
+            }
+            if tags.iter().any(|&(a, b)| from >= a && to <= b) {
+                format.color = st.accent;
+            }
+            job.sections.push(LayoutSection { leading_space: if first { section.leading_space } else { 0.0 }, byte_range: ByteIndex(from)..ByteIndex(to), format });
+            first = false;
+            from = to;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -403,6 +442,26 @@ mod tests {
             }
             assert_eq!(same_text(&layout(doc, None, true, &style(), 400.0).text), same_text(doc));
         }
+    }
+
+    #[test]
+    fn tags_are_coloured_and_their_paragraphs_tinted() {
+        let text = "First.\n\n#work Had a good day\n\nLast.";
+        let job = layout(text, None, false, &style(), 400.0);
+        assert_eq!(job.text, text);
+        let covered = |a: usize, b: usize| job.sections.iter().filter(|s| s.byte_range.start.0 < b && s.byte_range.end.0 > a).collect::<Vec<_>>();
+        let tag_at = text.find("#work").unwrap();
+        assert!(covered(tag_at, tag_at + 5).iter().all(|s| s.format.color == Color32::BLUE), "the tag is in the accent colour");
+        assert!(covered(tag_at, tag_at + 5).iter().all(|s| s.format.background != Color32::TRANSPARENT), "and its paragraph is tinted");
+        let outside = text.find("First").unwrap();
+        assert!(covered(outside, outside + 5).iter().all(|s| s.format.background == Color32::TRANSPARENT && s.format.color == Color32::BLACK), "other paragraphs are untouched");
+        // Every byte of the text is still in exactly one piece, in order.
+        let mut at = 0;
+        for s in &job.sections {
+            assert_eq!(s.byte_range.start.0, at);
+            at = s.byte_range.end.0;
+        }
+        assert_eq!(at, text.len());
     }
 
     #[test]

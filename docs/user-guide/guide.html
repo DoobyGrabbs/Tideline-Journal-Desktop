@@ -129,7 +129,7 @@ td:first-child { white-space: nowrap; font-weight: 600; width: 34%; }
     <li><span class="n">2</span><a href="#calendar">The calendar</a><small>Year, Month, Week and Day views; moving and dragging entries</small></li>
     <li><span class="n">3</span><a href="#daypanel">The day panel</a><small>Reading, pinning, opening and deleting a day’s entries</small></li>
     <li><span class="n">4</span><a href="#writing">Writing an entry</a><small>Details, mood, prompts, formatting, pictures, files, templates</small></li>
-    <li><span class="n">5</span><a href="#search">Finding things</a><small>Search, filters, Timeline and categories</small></li>
+    <li><span class="n">5</span><a href="#search">Finding things</a><small>Search, filters, tags, Timeline and categories</small></li>
     <li><span class="n">6</span><a href="#pinned">Pinned</a><small>The entries you want to keep close</small></li>
     <li><span class="n">7</span><a href="#photos">Photos</a><small>Every picture in your journal</small></li>
     <li><span class="n">8</span><a href="#insights">Insights</a><small>Mood patterns, writing habits and looking back</small></li>
@@ -378,6 +378,17 @@ td:first-child { white-space: nowrap; font-weight: 600; width: 34%; }
 
   <h2>Categories in the side menu</h2>
   <p>Each category in the side menu shows how many entries it holds. Click one to see only that category’s entries. <span class="btn">Edit</span> next to “Categories” opens the category editor (see <a href="#categories">chapter 9</a>).</p>
+
+  <h2>Tags</h2>
+  <p>An entry can touch more than one subject. Tags let you mark the <em>part</em> of an entry that belongs to a subject, so you can find just those passages later.</p>
+  <ul>
+    <li><strong>Writing a tag:</strong> type <code>#work</code>, or any word after a <code>#</code>, anywhere in the text. As you type, the tags you have used before are offered under the writing area; click one to finish the tag.</li>
+    <li><strong>What a tag marks:</strong> the <em>paragraph</em> it is in (the lines between blank lines), wherever in the paragraph it stands: <code>#work Had a really good day</code>, or at the end, or in the middle. A tag on a paragraph of its own marks the paragraph after it, or the one before if it is the last thing in the entry. While you write, the marked paragraph is softly tinted and the tag is shown in the accent colour, so you can see exactly what each tag covers.</li>
+    <li><strong>Several tags:</strong> a paragraph can carry as many as you like. <code>#Work</code> and <code>#work</code> are the same tag.</li>
+    <li><strong>Not tags:</strong> headings (<code># Heading</code> with a space), <code>C#</code>, web addresses, numbers such as <code>#2026</code>, and anything in backticks.</li>
+  </ul>
+  <p><strong>Finding tagged passages:</strong> the side menu lists every tag under <strong>Tags</strong> with how many entries use it. Click one to see the paragraphs it marks, with their dates, and click a result to open its entry. Clicking a tag on an entry’s card does the same, and there is an <span class="btn">Any tag</span> choice among the search filters, which you can combine with words you type.</p>
+  <div class="callout note"><span class="label">Private entries</span><p>The tags of private entries are left out of the tag list, the filter and the suggestions, so a list of tag names can’t give away what a private entry is about. You can change this with <span class="menu">Settings → Security → Private tags are hidden</span>. It is a setting of this PC.</p></div>
 </section>
 
 <!-- ============================ 6 PINNED ============================ -->
@@ -476,6 +487,7 @@ td:first-child { white-space: nowrap; font-weight: 600; width: 34%; }
     <tr><td>Recovery key</td><td>Creates, shows or replaces the key that can open your journal if you forget your password (see <a href="#privacy">chapter 12</a>).</td></tr>
     <tr><td>Auto-lock</td><td>Locks the journal after no activity for: Off, 1, 5, 10 (the default) or 30 minutes.</td></tr>
     <tr><td>Hide when in the background</td><td>Blanks the window while you are using another program or it is minimised.</td></tr>
+    <tr><td>Private tags are hidden</td><td>Keeps the tags of private entries off the tag list, the search filter and the suggestions (on by default).</td></tr>
   </table>
   <h2>Writing</h2>
   <table>

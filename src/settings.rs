@@ -120,8 +120,11 @@ impl DiaryApp {
                 row(ui, &p, "Auto-lock", "Lock the journal after a period of no activity.", false, |ui| {
                     changed |= dropdown(ui, "set_autolock", &mut self.data.settings.auto_lock_minutes, &AUTO_LOCK);
                 });
-                row(ui, &p, "Hide when in the background", "Hide your entries while the window is not the one you are using.", true, |ui| {
+                row(ui, &p, "Hide when in the background", "Hide your entries while the window is not the one you are using.", false, |ui| {
                     changed |= kit::toggle(ui, &mut self.data.settings.privacy_screen).changed();
+                });
+                row(ui, &p, "Private tags are hidden", "Keep the tags of private entries off the tag list, the search filter and the suggestions.", true, |ui| {
+                    changed |= kit::toggle(ui, &mut self.data.settings.hide_private_tags).changed();
                 });
             });
 

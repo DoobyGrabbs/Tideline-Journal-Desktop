@@ -49,6 +49,7 @@ impl DiaryApp {
         let shades = theme::shades();
         let template_names = self.template_names();
         let ai_ready = self.ai_ready();
+        let tag_list = self.tag_counts();
         let (mut ask_draft, mut ask_question, mut open_ai_setup) = (false, false, false);
         let (mut chosen_template, mut open_templates, mut persist_settings) = (None::<String>, false, false);
         let DiaryApp { editor, data, media, show_marks, editor_msg, save_requested, .. } = self;
@@ -340,6 +341,7 @@ impl DiaryApp {
                             ui.painter().rect_filled(line, 0.0, p.border_soft);
 
                             // Title and text.
+                            let mut suggest: Option<(usize, usize, Vec<String>)> = None;
                             egui::Frame::new().inner_margin(egui::Margin { left: 30, right: 30, top: 24, bottom: 8 }).show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.spacing_mut().item_spacing.y = 6.0;
@@ -406,6 +408,15 @@ impl DiaryApp {
                                             }
                                             if resp.has_focus() {
                                                 ed.focus = i;
+                                                // A tag being typed: offer the tags already used.
+                                                if let Some(pos) = collapsed_cursor(&ctx, id) {
+                                                    if let Some(typed) = tideline_core::tags::tag_being_typed(s.as_str(), pos) {
+                                                        let options = tideline_core::tags::suggestions(&tag_list, &typed);
+                                                        if !options.is_empty() {
+                                                            suggest = Some((i, pos, options));
+                                                        }
+                                                    }
+                                                }
                                                 // Let the arrow keys travel past pictures into the next text block.
                                                 let (down, up) = ctx.input(|inp| (inp.key_pressed(egui::Key::ArrowDown), inp.key_pressed(egui::Key::ArrowUp)));
                                                 if down || up {
@@ -451,6 +462,31 @@ impl DiaryApp {
                                     ed.text = live::join(&segs);
                                 }
                             });
+
+                            if let Some((block, pos, options)) = suggest {
+                                let mut picked = None;
+                                egui::Frame::new().inner_margin(egui::Margin { left: 30, right: 30, top: 2, bottom: 6 }).show(ui, |ui| {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label(RichText::new("Tags you have used").size(12.5).color(p.faint));
+                                        for t in &options {
+                                            if kit::small_button(ui, Look::AccentOutline, None, &format!("#{t}")).clicked() {
+                                                picked = Some(t.clone());
+                                            }
+                                        }
+                                    });
+                                });
+                                if let Some(t) = picked {
+                                    let mut segs = live::split(&ed.text);
+                                    if let Some(live::Seg::Text(s)) = segs.get_mut(block) {
+                                        if let Some((done, cursor)) = tideline_core::tags::complete_tag(s, pos, &t) {
+                                            *s = done;
+                                            ed.want_focus = Some((block, cursor));
+                                            ed.text = live::join(&segs);
+                                            ctx.request_repaint();
+                                        }
+                                    }
+                                }
+                            }
 
                             // Footer: words and reading time, formatting marks, save hint.
                             let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());

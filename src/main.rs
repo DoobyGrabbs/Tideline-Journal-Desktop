@@ -29,6 +29,7 @@ mod search;
 mod settings;
 mod stats;
 mod syncing;
+mod tagging;
 mod templates;
 mod theme;
 mod trash;
@@ -174,6 +175,8 @@ struct Settings {
     ai_model: String,
     /// How many automatic backups to keep; 0 turns them off.
     backup_keep: u32,
+    /// Keep the tags of private entries off the tag lists, the search filter and the suggestions.
+    hide_private_tags: bool,
     /// Settings written by a newer version of the app (the phone's, for instance): kept untouched.
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     extra: serde_json::Map<String, serde_json::Value>,
@@ -181,7 +184,7 @@ struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true, default_template: String::new(), show_prompts: true, ai_enabled: false, ai_model: String::new(), backup_keep: backups::DEFAULT_KEEP, extra: Default::default() }
+        Self { auto_lock_minutes: 10, daily_word_goal: 0, ui_scale: 1.0, privacy_screen: true, default_template: String::new(), show_prompts: true, ai_enabled: false, ai_model: String::new(), backup_keep: backups::DEFAULT_KEEP, hide_private_tags: true, extra: Default::default() }
     }
 }
 
@@ -496,6 +499,8 @@ struct DiaryApp {
     /// Bumped whenever the diary changes; invalidates `stats_cache`.
     rev: u64,
     stats_cache: Option<(u64, BTreeMap<NaiveDate, stats::DayStat>)>,
+    /// The tags in the diary and how often each is used, for the sidebar and suggestions: (rev, hide private, list).
+    tag_cache: Option<(u64, bool, Vec<(String, usize)>)>,
     /// Entry being dragged on the calendar.
     drag: Option<u64>,
     /// Scroll the day view to the working hours on its next frame.
@@ -589,6 +594,7 @@ clear_open_files(); // leftovers from opening attachments last time
             settings_jump: None,
             expanded: std::collections::HashSet::new(),
             pinned_category: None,
+            tag_cache: None,
             pinned_sort: 0,
             view: CalView::Month,
             rev: 0,
@@ -1583,6 +1589,7 @@ clear_open_files(); // leftovers from opening attachments last time
                 .iter()
                 .map(|c| (c.name.clone(), rgb(c.color), self.data.entries.iter().filter(|e| e.category == c.name).count()))
                 .collect();
+            let tag_items = self.tag_counts();
             egui::ScrollArea::vertical().id_salt("side_categories").max_height((ui.available_height() - 150.0).max(40.0)).show(ui, |ui| {
                 for (name, col, n) in counts {
                     let on = self.search_state.filters.category == name && self.search_state.showing(&self.search);
@@ -1592,6 +1599,24 @@ clear_open_files(); // leftovers from opening attachments last time
                         self.search_state.filters.category = name;
                         self.insights.open = false;
                         self.show_pinned = false;
+                    }
+                }
+                if !tag_items.is_empty() {
+                    ui.add_space(14.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(6.0);
+                        kit::section_label(ui, "Tags");
+                    });
+                    ui.add_space(2.0);
+                    for (tag, n) in tag_items {
+                        let on = self.search_state.filters.tag == tag && self.search_state.showing(&self.search);
+                        if kit::nav_item(ui, None, None, &format!("#{tag}"), Some(n.to_string()), on).on_hover_text("Show the paragraphs this tag marks").clicked() {
+                            self.search.clear();
+                            self.search_state.reset();
+                            self.search_state.filters.tag = tag;
+                            self.insights.open = false;
+                            self.show_pinned = false;
+                        }
                     }
                 }
             });
@@ -2208,6 +2233,7 @@ clear_open_files(); // leftovers from opening attachments last time
         let mut delete = None;
         let mut jump = None;
         let mut toggle_pin = None;
+        let mut filter_tag: Option<String> = None;
         let mut toggle_more: Option<u64> = None;
         let mut reveal = None;
         let mut hide = None;
@@ -2286,6 +2312,17 @@ clear_open_files(); // leftovers from opening attachments last time
                         }
                         if longer && kit::text_link(ui, if is_open { "Show less" } else if has_picture { "Show more, with picture" } else { "Show more" }, if is_open { kit::Icon::ChevronUp } else { kit::Icon::ChevronDown }).clicked() {
                             toggle_more = Some(e.id);
+                        }
+                        let card_tags = tideline_core::tags::tags_of(&e.text);
+                        if !card_tags.is_empty() {
+                            ui.horizontal_wrapped(|ui| {
+                                for t in card_tags.iter().take(6) {
+                                    let tag = egui::Label::new(RichText::new(format!("#{t}")).size(13.0).color(p.accent)).sense(Sense::click());
+                                    if ui.add(tag).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Show the paragraphs this tag marks").clicked() {
+                                        filter_tag = Some(t.clone());
+                                    }
+                                }
+                            });
                         }
                         for a in &e.attachments {
                             ui.horizontal(|ui| {
@@ -2381,6 +2418,13 @@ clear_open_files(); // leftovers from opening attachments last time
             if !self.expanded.remove(&id) {
                 self.expanded.insert(id);
             }
+        }
+        if let Some(tag) = filter_tag {
+            self.search.clear();
+            self.search_state.reset();
+            self.search_state.filters.tag = tag;
+            self.insights.open = false;
+            self.show_pinned = false;
         }
         if let Some(id) = toggle_pin {
             if let Some(e) = self.data.entries.iter_mut().find(|e| e.id == id) {

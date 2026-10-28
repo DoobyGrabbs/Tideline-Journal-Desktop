@@ -40,17 +40,21 @@ pub(crate) struct Filters {
     pub to: NaiveDate,
     pub starred: bool,
     pub with_files: bool,
+    /// Only entries with this tag (lower case, no #); empty means any.
+    pub tag: String,
+    /// Leave private entries out of tag results (the setting; set by the caller).
+    pub hide_private: bool,
     pub sort: Sort,
 }
 
 impl Filters {
     pub fn new(today: NaiveDate) -> Self {
-        Self { category: String::new(), mood: 0, period: Period::Any, from: today - chrono::Duration::days(30), to: today, starred: false, with_files: false, sort: Sort::Newest }
+        Self { category: String::new(), mood: 0, period: Period::Any, from: today - chrono::Duration::days(30), to: today, starred: false, with_files: false, tag: String::new(), hide_private: true, sort: Sort::Newest }
     }
 
     /// Is anything other than the sort order narrowing the results?
     pub fn is_active(&self) -> bool {
-        !self.category.is_empty() || self.mood != 0 || self.period != Period::Any || self.starred || self.with_files
+        !self.category.is_empty() || self.mood != 0 || self.period != Period::Any || self.starred || self.with_files || !self.tag.is_empty()
     }
 
     fn date_range(&self, today: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
@@ -142,6 +146,8 @@ struct Indexed {
     folded: Vec<char>,
     /// Category, date and attachment names, lower-cased.
     meta: Vec<char>,
+    /// The paragraphs that carry tags: the tags, and the paragraph as text.
+    tagged: Vec<(Vec<String>, String)>,
 }
 
 fn index_entry(e: &Entry) -> Indexed {
@@ -153,7 +159,12 @@ fn index_entry(e: &Entry) -> Indexed {
             meta.push_str(&a.name);
         }
     }
-    Indexed { plain: plain_text.chars().collect(), folded: fold(&plain_text), meta: fold(&meta) }
+    let chars: Vec<char> = e.text.chars().collect();
+    let tagged = tideline_core::tags::tag_sections(&e.text)
+        .into_iter()
+        .map(|s| (s.tags, markdown::plain_text(&chars[s.range.0..s.range.1].iter().collect::<String>())))
+        .collect();
+    Indexed { plain: plain_text.chars().collect(), folded: fold(&plain_text), meta: fold(&meta), tagged }
 }
 
 /// A piece of the snippet and whether it matched.
@@ -248,6 +259,7 @@ fn run_indexed(entries: &[Entry], items: &[Indexed], text: &str, f: &Filters, to
             || (f.mood != 0 && e.mood != Some(f.mood))
             || (f.starred && !e.pinned)
             || (f.with_files && (e.attachments.is_empty() || e.sensitive))
+            || (!f.tag.is_empty() && ((f.hide_private && e.sensitive) || !item.tagged.iter().any(|(tags, _)| tags.contains(&f.tag))))
         {
             continue;
         }
@@ -277,6 +289,16 @@ fn run_indexed(entries: &[Entry], items: &[Indexed], text: &str, f: &Filters, to
         }
         let snip = if e.sensitive {
             vec![("Private entry".to_string(), false)]
+        } else if !f.tag.is_empty() && q.include.is_empty() {
+            // The paragraphs the tag marks, one after another.
+            let mut s: Snippet = Vec::new();
+            for (_, text) in item.tagged.iter().filter(|(tags, _)| tags.contains(&f.tag)) {
+                if !s.is_empty() {
+                    s.push(("  ·  ".into(), false));
+                }
+                s.push((text.split_whitespace().collect::<Vec<_>>().join(" "), false));
+            }
+            s
         } else if q.include.is_empty() || !q.include.iter().any(|t| in_text(t) > 0) {
             snippet(item, &[])
         } else {
@@ -328,6 +350,7 @@ impl DiaryApp {
             self.search_state.index = Some((self.rev, self.data.entries.iter().map(index_entry).collect()));
             self.search_state.cache = None;
         }
+        self.search_state.filters.hide_private = self.data.settings.hide_private_tags;
         let key = CacheKey { text: self.search.clone(), filters: self.search_state.filters.clone(), rev: self.rev, today };
         if self.search_state.cache.as_ref().map(|c| &c.0) != Some(&key) {
             let items = &self.search_state.index.as_ref().unwrap().1;
@@ -336,6 +359,7 @@ impl DiaryApp {
         }
 
         let categories: Vec<String> = self.data.categories.iter().map(|c| c.name.clone()).collect();
+        let tag_list = self.tag_counts();
         let mut clear = false;
         ui.horizontal(|ui| {
             ui.label(RichText::new("Search").size(22.0).strong().color(p.title));
@@ -355,6 +379,16 @@ impl DiaryApp {
                         ui.selectable_value(&mut f.category, c.clone(), c);
                     }
                 });
+            if !tag_list.is_empty() || !f.tag.is_empty() {
+                egui::ComboBox::from_id_salt("search_tag")
+                    .selected_text(if f.tag.is_empty() { "Any tag".to_string() } else { format!("#{}", f.tag) })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut f.tag, String::new(), "Any tag");
+                        for (t, _) in &tag_list {
+                            ui.selectable_value(&mut f.tag, t.clone(), format!("#{t}"));
+                        }
+                    });
+            }
             egui::ComboBox::from_id_salt("search_mood")
                 .selected_text(if f.mood == 0 { "Any mood" } else { MOOD_LABELS[usize::from(f.mood) - 1] })
                 .show_ui(ui, |ui| {
@@ -491,6 +525,32 @@ mod tests {
 
     fn plain() -> Filters {
         Filters::new(d(2026, 10, 12))
+    }
+
+    #[test]
+    fn a_tag_filter_finds_the_entries_whose_paragraphs_it_marks() {
+        let mut v = vec![
+            entry(1, "2026-10-01", "Personal", "#work Planning day\n\nUnrelated paragraph."),
+            entry(2, "2026-10-02", "Personal", "A walk, and later #Work again"),
+            entry(3, "2026-10-03", "Personal", "#family only"),
+            entry(4, "2026-10-04", "Personal", "#work secret plan"),
+            entry(5, "2026-10-05", "Personal", "#work"),
+        ];
+        v[3].sensitive = true;
+        let mut f = plain();
+        f.tag = "work".into();
+        assert!(f.is_active());
+        // Private entries are left out by default; an entry whose only paragraph is the tag marks nothing.
+        assert_eq!(find(&v, "", &f), vec![2, 1]);
+        f.hide_private = false;
+        assert_eq!(find(&v, "", &f), vec![4, 2, 1]);
+        // Without text typed, the result shows the paragraph the tag marks, not the whole entry.
+        f.hide_private = true;
+        let hits = run(&v, "", &f, d(2026, 10, 12));
+        let first = hits.iter().find(|h| v[h.entry].id == 1).unwrap();
+        assert_eq!(first.snippet.iter().map(|s| s.0.as_str()).collect::<String>(), "#work Planning day");
+        // It combines with typed words.
+        assert_eq!(find(&v, "walk", &f), vec![2]);
     }
 
     #[test]
