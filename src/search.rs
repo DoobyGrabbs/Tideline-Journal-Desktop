@@ -370,7 +370,8 @@ impl DiaryApp {
             });
         });
         let f = &mut self.search_state.filters;
-        ui.horizontal_wrapped(|ui| {
+        // Two short rows: four boxes in a row are wider than the panel.
+        ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("search_cat")
                 .selected_text(if f.category.is_empty() { "Any category".to_string() } else { f.category.clone() })
                 .show_ui(ui, |ui| {
@@ -389,6 +390,8 @@ impl DiaryApp {
                         }
                     });
             }
+        });
+        ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("search_mood")
                 .selected_text(if f.mood == 0 { "Any mood" } else { MOOD_LABELS[usize::from(f.mood) - 1] })
                 .show_ui(ui, |ui| {
