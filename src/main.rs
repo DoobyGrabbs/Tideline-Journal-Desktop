@@ -1530,6 +1530,8 @@ clear_open_files(); // leftovers from opening attachments last time
         let calendar_on = self.view != CalView::Photos && !self.search_state.showing(&self.search) && !self.insights.open && !self.show_pinned;
         if kit::nav_item(ui, Some(kit::Icon::Sun), None, "Today", None, false).on_hover_text("Jump to today (Ctrl+T)").clicked() {
             self.go_today();
+            self.search.clear();
+            self.search_state.reset();
             self.insights.open = false;
             self.show_pinned = false;
         }
@@ -1552,6 +1554,9 @@ clear_open_files(); // leftovers from opening attachments last time
         }
         let pinned = self.data.entries.iter().filter(|e| e.pinned).count();
         if kit::nav_item(ui, Some(kit::Icon::Star), None, "Pinned", (pinned > 0).then(|| pinned.to_string()), self.show_pinned).clicked() {
+            // The search panel is put away, or the page would stay hidden behind it.
+            self.search.clear();
+            self.search_state.reset();
             self.show_pinned = !self.show_pinned;
             self.insights.open = false;
         }
@@ -1563,6 +1568,8 @@ clear_open_files(); // leftovers from opening attachments last time
             self.search_state.reset();
         }
         if kit::nav_item(ui, Some(kit::Icon::Chart), None, "Insights", None, self.insights.open).on_hover_text("Mood patterns, writing statistics and reviews").clicked() {
+            self.search.clear();
+            self.search_state.reset();
             self.insights.open = !self.insights.open;
             self.show_pinned = false;
         }
@@ -1628,6 +1635,8 @@ clear_open_files(); // leftovers from opening attachments last time
             ui.spacing_mut().item_spacing.y = 6.0;
             if kit::nav_item(ui, Some(kit::Icon::Sliders), None, "Settings", None, false).on_hover_text("Settings").clicked() {
                 self.show_settings = true;
+                self.search.clear();
+                self.search_state.reset();
                 self.settings_section = 0;
                 self.settings_jump = Some(0);
                 self.insights.open = false;
