@@ -342,7 +342,53 @@ fn job(snip: &Snippet, fg: Color32, size: f32) -> LayoutJob {
 }
 
 impl DiaryApp {
-    /// Replaces the day panel while searching.
+    /// The search panel: it slides in from the right over the calendar while a search or filter is on, so it can be wide.
+    /// Its left edge can be dragged to change the width; Esc or Clear closes it.
+    pub(crate) fn search_overlay(&mut self, ctx: &egui::Context) {
+        let showing = self.search_state.showing(&self.search);
+        let t = ctx.animate_bool_with_time_and_easing(egui::Id::new("search_overlay_open"), showing, 0.22, egui::emath::easing::cubic_out);
+        if t <= 0.0 {
+            return;
+        }
+        let p = palette(ctx);
+        let dark = ctx.theme() == egui::Theme::Dark;
+        let screen = ctx.content_rect();
+        let top = 44.0; // under the title bar
+        let max_width = (screen.width() - 300.0).max(420.0);
+        let width = self.search_width.clamp(420.0, max_width);
+        let height = (screen.height() - top).max(200.0);
+        let x = screen.right() - width * t;
+        let mut drag = 0.0;
+        egui::Area::new(egui::Id::new("search_overlay")).order(egui::Order::Foreground).fixed_pos(egui::pos2(x, top)).show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(p.panel_bg)
+                .stroke(Stroke::new(1.0, p.cell_border))
+                .shadow(popup_shadow(dark))
+                .corner_radius(egui::CornerRadius { nw: 14, sw: 14, ne: 0, se: 0 })
+                .inner_margin(egui::Margin::symmetric(24, 22))
+                .show(ui, |ui| {
+                    ui.set_width(width - 50.0);
+                    ui.set_height(height - 46.0);
+                    self.search_results(ui, &p);
+                });
+            // A strip along the left edge to drag.
+            let handle = egui::Rect::from_min_size(egui::pos2(x - 4.0, top), vec2(10.0, height));
+            let resp = ui.interact(handle, egui::Id::new("search_overlay_edge"), Sense::drag());
+            if resp.hovered() || resp.dragged() {
+                ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            drag = resp.drag_delta().x;
+        });
+        if drag != 0.0 {
+            self.search_width = (width - drag).clamp(420.0, max_width);
+        }
+        if showing && self.editor.is_none() && self.drag.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.search.clear();
+            self.search_state.reset();
+        }
+    }
+
+    /// The search results and filters (shown in the floating search panel).
     pub(crate) fn search_results(&mut self, ui: &mut egui::Ui, p: &Palette) {
         let today = Local::now().date_naive();
         // Rebuild what is needed only when the diary or the question changed.

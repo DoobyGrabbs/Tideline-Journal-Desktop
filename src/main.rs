@@ -501,6 +501,8 @@ struct DiaryApp {
     stats_cache: Option<(u64, BTreeMap<NaiveDate, stats::DayStat>)>,
     /// The tags in the diary and how often each is used, for the sidebar and suggestions: (rev, hide private, list).
     tag_cache: Option<(u64, bool, Vec<(String, usize)>)>,
+    /// How wide the floating search panel is (the person can drag its left edge).
+    search_width: f32,
     /// Entry being dragged on the calendar.
     drag: Option<u64>,
     /// Scroll the day view to the working hours on its next frame.
@@ -595,6 +597,7 @@ clear_open_files(); // leftovers from opening attachments last time
             expanded: std::collections::HashSet::new(),
             pinned_category: None,
             tag_cache: None,
+            search_width: 640.0,
             pinned_sort: 0,
             view: CalView::Month,
             rev: 0,
@@ -2158,10 +2161,6 @@ clear_open_files(); // leftovers from opening attachments last time
 
     fn day_panel(&mut self, ui: &mut egui::Ui) {
         let p = palette(ui.ctx());
-        if self.search_state.showing(&self.search) {
-            self.search_results(ui, &p);
-            return;
-        }
         let entries: Vec<Entry> = self.day_entries(self.selected).into_iter().cloned().collect();
         let memories: Vec<Entry> = stats::on_this_day(&self.data.entries, self.selected).into_iter().cloned().collect();
         let words: usize = entries.iter().filter(|e| !e.generated).map(|e| markdown::word_count(&e.text)).sum();
@@ -2810,6 +2809,7 @@ impl eframe::App for DiaryApp {
             }
         }
 
+        self.search_overlay(&ctx);
         self.categories_window(&ctx);
         self.password_window(&ctx);
         self.location_window(&ctx);
@@ -3841,7 +3841,10 @@ mod tests {
         setup_style(&ctx);
         let frame = |app: &mut DiaryApp| {
             for _ in 0..2 {
-                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.day_panel(ui));
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    app.day_panel(ui);
+                    app.search_overlay(ui.ctx());
+                });
                 out.textures_delta.clear();
             }
         };
