@@ -20,7 +20,7 @@ This page covers the Windows app, the Android app and the optional sync server. 
 | Automatic and manual backups of the diary | Encrypted exactly like the diary. |
 | Everything sent to the sync server | Encrypted on your device first (see below). |
 | The password on the phone, when you use fingerprint unlock | Encrypted with a key that lives in Android's secure key store and needs your fingerprint to use. |
-| Private entries | Also hidden in the apps until you tap them, left out of text search, Insights, PDF exports (unless you ask) and the AI helpers. They are still synced and encrypted like every other entry. |
+| Private entries | Also hidden in the apps until you tap them, left out of text search, Insights, PDF exports (unless you ask) and the AI helpers. On the phone their tags are kept off the Tags page unless you turn off *Private tags are hidden* in Settings. They are still synced and encrypted like every other entry. |
 
 ## What leaves your devices
 
