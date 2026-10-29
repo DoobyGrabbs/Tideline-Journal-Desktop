@@ -342,6 +342,7 @@ impl DiaryApp {
 
                             // Title and text.
                             let mut suggest: Option<(usize, usize, Vec<String>)> = None;
+                            let mut text_focused = false;
                             egui::Frame::new().inner_margin(egui::Margin { left: 30, right: 30, top: 24, bottom: 8 }).show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.spacing_mut().item_spacing.y = 6.0;
@@ -408,6 +409,7 @@ impl DiaryApp {
                                             }
                                             if resp.has_focus() {
                                                 ed.focus = i;
+                                                text_focused = true;
                                                 // A tag being typed: offer the tags already used.
                                                 if let Some(pos) = collapsed_cursor(&ctx, id) {
                                                     if let Some(typed) = tideline_core::tags::tag_being_typed(s.as_str(), pos) {
@@ -463,7 +465,14 @@ impl DiaryApp {
                                 }
                             });
 
-                            if let Some((block, pos, options)) = suggest {
+                                            // Pressing a suggestion takes the cursor out of the text for a moment; the strip must outlive that, or the
+                            // click would never arrive. So while the mouse button is down (or just released) the last suggestions stay.
+                            let tag_key = egui::Id::new("tag_suggest");
+                            let stored: Option<(usize, usize, Vec<String>)> = ctx.data(|d| d.get_temp::<Option<(usize, usize, Vec<String>)>>(tag_key)).flatten();
+                            let pointer_busy = ctx.input(|i| i.pointer.any_down() || i.pointer.any_released());
+                            let shown = if text_focused { suggest } else if pointer_busy { stored } else { None };
+                            ctx.data_mut(|d| d.insert_temp(tag_key, shown.clone()));
+                            if let Some((block, pos, options)) = shown {
                                 let mut picked = None;
                                 egui::Frame::new().inner_margin(egui::Margin { left: 30, right: 30, top: 2, bottom: 6 }).show(ui, |ui| {
                                     ui.horizontal_wrapped(|ui| {
@@ -483,6 +492,7 @@ impl DiaryApp {
                                             ed.want_focus = Some((block, cursor));
                                             ed.text = live::join(&segs);
                                             ctx.request_repaint();
+                                            ctx.data_mut(|d| d.insert_temp(tag_key, None::<(usize, usize, Vec<String>)>));
                                         }
                                     }
                                 }
