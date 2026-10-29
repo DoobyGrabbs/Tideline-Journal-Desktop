@@ -250,14 +250,14 @@ impl DiaryApp {
                                 ui.set_width(ui.available_width());
                                 ui.horizontal(|ui| {
                                     use markdown::Format::*;
-                                    let groups: [&[(Tool, &str, markdown::Format)]; 3] = [
-                                        &[(Tool::Bold, "Bold (Ctrl+B)", Bold), (Tool::Italic, "Italic (Ctrl+I)", Italic), (Tool::Strike, "Strikethrough", Strike)],
-                                        &[(Tool::Heading(1), "Large heading", Heading(1)), (Tool::Heading(2), "Medium heading", Heading(2)), (Tool::Heading(3), "Small heading", Heading(3))],
+                                    let groups: [&[(Tool, &str, markdown::Format)]; 4] = [
+                                        &[(Tool::Bold, "Bold (Ctrl+B)", Bold), (Tool::Italic, "Italic (Ctrl+I)", Italic)],
+                                        &[(Tool::Heading(2), "Heading", Heading(2))],
                                         &[
                                             (Tool::Icon(Icon::Bullets), "Bulleted list", Bullet),
                                             (Tool::Icon(Icon::Numbers), "Numbered list", Numbered),
-                                            (Tool::Icon(Icon::Quote), "Quote", Quote),
                                         ],
+                                        &[(Tool::Normal, "Normal: take the formatting off the selected lines, or the line the cursor is on", Clear)],
                                     ];
                                     for (n, group) in groups.iter().enumerate() {
                                         if n > 0 {

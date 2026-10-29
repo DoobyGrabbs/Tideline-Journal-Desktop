@@ -457,11 +457,11 @@ pub fn render(ui: &mut egui::Ui, md: &str, style: &Style, media: &mut Media, ima
 pub enum Format {
     Bold,
     Italic,
-    Strike,
     Heading(u8),
     Bullet,
     Numbered,
-    Quote,
+    /// Normal: take the formatting off the selected lines (or the line the cursor is on).
+    Clear,
 }
 
 /// Apply `format` to the selection (char indices, start <= end). Returns the new selection.
@@ -473,11 +473,10 @@ pub fn apply(text: &mut String, sel: (usize, usize), format: Format) -> (usize, 
     let result = match format {
         Format::Bold => wrap(&mut chars, a, b, "**"),
         Format::Italic => wrap(&mut chars, a, b, "*"),
-        Format::Strike => wrap(&mut chars, a, b, "~~"),
         Format::Heading(n) => prefix_lines(&mut chars, a, b, |_| format!("{} ", "#".repeat(n as usize))),
         Format::Bullet => prefix_lines(&mut chars, a, b, |_| "- ".to_string()),
         Format::Numbered => prefix_lines(&mut chars, a, b, |i| format!("{}. ", i + 1)),
-        Format::Quote => prefix_lines(&mut chars, a, b, |_| "> ".to_string()),
+        Format::Clear => clear_formatting(&mut chars, a, b),
     };
     *text = chars.into_iter().collect();
     result
@@ -519,24 +518,7 @@ fn prefix_lines(chars: &mut Vec<char>, a: usize, b: usize, prefix: impl Fn(usize
     let block: String = chars[start..end].iter().collect();
     let lines: Vec<&str> = block.split('\n').collect();
 
-    let strip = |line: &str| -> (usize, String) {
-        // Existing list/quote/heading prefix length (in chars) and the rest of the line.
-        let t = line.trim_start_matches('#');
-        let hashes = line.len() - t.len();
-        if hashes > 0 && hashes <= 6 && t.starts_with(' ') {
-            return (hashes + 1, t[1..].to_string());
-        }
-        for p in ["- ", "* ", "> "] {
-            if let Some(rest) = line.strip_prefix(p) {
-                return (p.len(), rest.to_string());
-            }
-        }
-        let digits = line.chars().take_while(char::is_ascii_digit).count();
-        if digits > 0 && line[digits..].starts_with(". ") {
-            return (digits + 2, line[digits + 2..].to_string());
-        }
-        (0, line.to_string())
-    };
+    let strip = strip_line_prefix;
 
     let all_have = lines.iter().enumerate().all(|(i, l)| {
         let want = prefix(i);
@@ -557,6 +539,117 @@ fn prefix_lines(chars: &mut Vec<char>, a: usize, b: usize, prefix: impl Fn(usize
     let new_len = joined.chars().count();
     chars.splice(start..end, joined.chars());
     (start, start + new_len)
+}
+
+/// The word the cursor is in or next to, as a range of characters (letters, digits, apostrophes and underscores).
+pub fn word_at(chars: &[char], pos: usize) -> Option<(usize, usize)> {
+    let is_word = |c: char| c.is_alphanumeric() || c == '\'' || c == '_';
+    let pos = pos.min(chars.len());
+    let mut start = pos;
+    while start > 0 && is_word(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = pos;
+    while end < chars.len() && is_word(chars[end]) {
+        end += 1;
+    }
+    (end > start).then_some((start, end))
+}
+
+/// Take the line prefix (heading marks, a bullet, a number, a quote mark) off a line: how many characters it was,
+/// and the rest. A `#tag` is not a heading: the `#` must be followed by a space.
+fn strip_line_prefix(line: &str) -> (usize, String) {
+    let t = line.trim_start_matches('#');
+    let hashes = line.len() - t.len();
+    if hashes > 0 && hashes <= 6 && t.starts_with(' ') {
+        return (hashes + 1, t[1..].to_string());
+    }
+    for p in ["- ", "* ", "> "] {
+        if let Some(rest) = line.strip_prefix(p) {
+            return (p.len(), rest.to_string());
+        }
+    }
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    if digits > 0 && line[digits..].starts_with(". ") {
+        return (digits + 2, line[digits + 2..].to_string());
+    }
+    (0, line.to_string())
+}
+
+/// Take emphasis marks out of a line: `***bold italic***`, `**bold**`, `~~struck~~`, `*italic*`, `_italic_` and
+/// `` `code` ``, leaving the words. Marks that aren't a matching pair, links, pictures and `#tags` are left alone.
+fn strip_inline_marks(line: &str) -> String {
+    let mut c: Vec<char> = line.chars().collect();
+    if line.contains("](img:") {
+        return line.to_string();
+    }
+    let starts = |c: &[char], i: usize, pat: &str| pat.chars().enumerate().all(|(k, p)| c.get(i + k) == Some(&p));
+    // Paired marks of more than one character, then code, then single stars and underscores.
+    for pat in ["***", "**", "~~"] {
+        let n = pat.chars().count();
+        let mut i = 0;
+        while i + n <= c.len() {
+            if starts(&c, i, pat) && c.get(i + n).is_some_and(|x| !x.is_whitespace() && *x != pat.chars().next().unwrap()) {
+                let close = (i + n + 1..c.len()).find(|&j| starts(&c, j, pat) && !c[j - 1].is_whitespace() && c.get(j + n) != pat.chars().next().as_ref());
+                if let Some(j) = close {
+                    c.drain(j..j + n);
+                    c.drain(i..i + n);
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] == '`' {
+            if let Some(j) = (i + 1..c.len()).find(|&j| c[j] == '`') {
+                c.remove(j);
+                c.remove(i);
+                continue;
+            }
+        }
+        i += 1;
+    }
+    let mut i = 0;
+    while i < c.len() {
+        let before_ok = i == 0 || !(c[i - 1].is_alphanumeric() || c[i - 1] == c[i]);
+        if (c[i] == '*' || c[i] == '_') && before_ok && c.get(i + 1).is_some_and(|x| !x.is_whitespace() && *x != c[i]) {
+            let m = c[i];
+            let close = (i + 2..c.len()).find(|&j| c[j] == m && !c[j - 1].is_whitespace() && (m == '*' || c.get(j + 1).is_none_or(|x| !x.is_alphanumeric())));
+            if let Some(j) = close {
+                c.remove(j);
+                c.remove(i);
+                continue;
+            }
+        }
+        i += 1;
+    }
+    // What is left: runs of two or more asterisks or tildes are empty or stray marks (`****`), not text.
+    let mut cleaned: Vec<char> = Vec::with_capacity(c.len());
+    let mut i = 0;
+    while i < c.len() {
+        let run = c[i..].iter().take_while(|x| **x == c[i]).count();
+        if (c[i] == '*' || c[i] == '~') && run >= 2 {
+            i += run;
+        } else {
+            cleaned.push(c[i]);
+            i += 1;
+        }
+    }
+    cleaned.into_iter().collect()
+}
+
+/// Normal: the selected lines (or the line the cursor is on) go back to plain text.
+fn clear_formatting(chars: &mut Vec<char>, a: usize, b: usize) -> (usize, usize) {
+    let start = chars[..a].iter().rposition(|c| *c == '\n').map_or(0, |p| p + 1);
+    let end = chars[b..].iter().position(|c| *c == '\n').map_or(chars.len(), |p| b + p);
+    let block: String = chars[start..end].iter().collect();
+    let cleaned: Vec<String> = block.split('\n').map(|l| strip_inline_marks(&strip_line_prefix(l).1)).collect();
+    let joined = cleaned.join("\n");
+    let len = joined.chars().count();
+    chars.splice(start..end, joined.chars());
+    (start, start + len)
 }
 
 #[cfg(test)]
@@ -594,6 +687,65 @@ mod tests {
         let md = "hello\n\n![cat](img:i7)\n\n![x](https://example.com/a.png)";
         assert_eq!(image_ids(md), vec!["i7".to_string()]);
         assert!(t(md).iter().any(|b| matches!(b, Block::Para(i) if i.iter().any(|x| matches!(x, Inline::Image { src, .. } if src == "img:i7")))));
+    }
+
+    fn applied(text: &str, sel: (usize, usize), f: Format) -> String {
+        let mut s = text.to_string();
+        apply(&mut s, sel, f);
+        s
+    }
+
+    #[test]
+    fn normal_takes_headings_lists_quotes_and_emphasis_off_the_selected_lines() {
+        let all = |t: &str| (0, t.chars().count());
+        let t = "## **Hello** and *there* ~~gone~~ `code` #tag";
+        assert_eq!(applied(t, all(t), Format::Clear), "Hello and there gone code #tag");
+        let list = "- one\n- **two**\n1. three\n> four";
+        assert_eq!(applied(list, all(list), Format::Clear), "one\ntwo\nthree\nfour");
+        assert_eq!(applied("***both*** and _under_ and snake_case_name", (0, 3), Format::Clear), "both and under and snake_case_name");
+        // A picture line, a link and unmatched marks are left alone.
+        assert_eq!(applied("![a *b*](img:i1)", (0, 2), Format::Clear), "![a *b*](img:i1)");
+        assert_eq!(applied("see [the **site**](http://x) 2 * 3 * 4", (0, 2), Format::Clear), "see [the site](http://x) 2 * 3 * 4");
+    }
+
+    #[test]
+    fn normal_acts_on_the_lines_touched_by_the_selection_or_the_cursor() {
+        let text = "**first**\n**second**\n**third**";
+        // The cursor (no selection) in the second line changes only that line.
+        assert_eq!(applied(text, (12, 12), Format::Clear), "**first**\nsecond\n**third**");
+        // A selection from the first line into the second changes both.
+        assert_eq!(applied(text, (2, 14), Format::Clear), "first\nsecond\n**third**");
+        let mut s = text.to_string();
+        let sel = apply(&mut s, (12, 12), Format::Clear);
+        assert_eq!(&s[sel.0..sel.1], "second", "the cleaned line is left selected");
+    }
+
+    #[test]
+    fn normal_also_removes_empty_and_stray_marks() {
+        assert_eq!(applied("adadd****", (9, 9), Format::Clear), "adadd");
+        assert_eq!(applied("a ~~ b ** c", (0, 0), Format::Clear), "a  b  c");
+        assert_eq!(applied("2 * 3 * 4", (0, 0), Format::Clear), "2 * 3 * 4", "a single star can be arithmetic");
+    }
+
+    #[test]
+    fn the_word_at_the_cursor_is_found_for_bold_and_italic() {
+        let c: Vec<char> = "one two, don't stop".chars().collect();
+        assert_eq!(word_at(&c, 5), Some((4, 7)));
+        assert_eq!(word_at(&c, 4), Some((4, 7)), "at the start of a word");
+        assert_eq!(word_at(&c, 7), Some((4, 7)), "just after a word");
+        assert_eq!(word_at(&c, 12), Some((9, 14)), "apostrophes stay in the word");
+        assert_eq!(word_at(&c, 8), None, "between a comma and a space there is no word");
+        assert_eq!(word_at(&[], 0), None);
+    }
+
+    #[test]
+    fn one_heading_level_toggles_and_replaces_other_levels() {
+        assert_eq!(applied("A title", (0, 0), Format::Heading(2)), "## A title");
+        assert_eq!(applied("## A title", (0, 0), Format::Heading(2)), "A title");
+        assert_eq!(applied("# Old big heading", (0, 0), Format::Heading(2)), "## Old big heading");
+        assert_eq!(applied("### Old small heading", (0, 0), Format::Heading(2)), "## Old small heading");
+        // A tag is not a heading.
+        assert_eq!(applied("#work today", (0, 0), Format::Heading(2)), "## #work today");
     }
 
     #[test]

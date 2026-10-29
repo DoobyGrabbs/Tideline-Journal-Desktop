@@ -2937,7 +2937,19 @@ fn format_selection(ctx: &egui::Context, id: egui::Id, text: &mut String, format
         .char_range()
         .map_or((end, end), |r| (usize::from(r.primary.index), usize::from(r.secondary.index)));
     let mut sel = (a.min(b), a.max(b));
-    if matches!(format, markdown::Format::Bold | markdown::Format::Italic | markdown::Format::Strike) {
+    // Bold or italic with nothing selected goes on the word at the cursor (and does nothing if there is no word),
+    // rather than leaving a pair of empty marks.
+    if sel.0 == sel.1 && matches!(format, markdown::Format::Bold | markdown::Format::Italic) {
+        let chars: Vec<char> = text.chars().collect();
+        match markdown::word_at(&chars, sel.0) {
+            Some(word) => sel = word,
+            None => {
+                ctx.memory_mut(|m| m.request_focus(id));
+                return;
+            }
+        }
+    }
+    if matches!(format, markdown::Format::Bold | markdown::Format::Italic) {
         sel = markdown::tighten_selection(sel, &live::hidden_marks(text));
     }
     let (s, e) = markdown::apply(text, sel, format);

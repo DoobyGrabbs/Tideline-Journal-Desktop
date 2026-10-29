@@ -538,8 +538,9 @@ pub fn date_picker(ui: &mut Ui, date: &mut chrono::NaiveDate) -> bool {
 pub enum Tool {
     Bold,
     Italic,
-    Strike,
     Heading(u8),
+    /// Normal: take the formatting off ("Tx").
+    Normal,
     Icon(Icon),
 }
 
@@ -559,12 +560,12 @@ pub fn tool_button(ui: &mut Ui, tool: Tool, tip: &str) -> Response {
         Tool::Italic => {
             painter.text(c, Align2::CENTER_CENTER, "I", FontId::new(18.0, crate::fonts::serif_italic()), fg);
         }
-        Tool::Strike => {
-            painter.text(c, Align2::CENTER_CENTER, "S", FontId::new(15.0, crate::fonts::ui_bold()), fg);
-            painter.line_segment([c + vec2(-6.0, 0.0), c + vec2(6.0, 0.0)], Stroke::new(1.3, fg));
+        Tool::Heading(_) => {
+            painter.text(c, Align2::CENTER_CENTER, "H", FontId::new(16.0, crate::fonts::ui_bold()), fg);
         }
-        Tool::Heading(n) => {
-            painter.text(c, Align2::CENTER_CENTER, format!("H{n}"), FontId::new(13.5, crate::fonts::ui_bold()), fg);
+        Tool::Normal => {
+            painter.text(c + vec2(-1.0, 0.0), Align2::CENTER_CENTER, "T", FontId::new(16.0, crate::fonts::ui_bold()), fg);
+            painter.text(c + vec2(7.0, 4.0), Align2::CENTER_CENTER, "x", FontId::new(11.0, crate::fonts::ui_bold()), fg);
         }
         Tool::Icon(icon) => paint(painter, c, 19.0, fg, icon, false),
     }
